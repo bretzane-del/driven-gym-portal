@@ -68,13 +68,25 @@ if not st.session_state.user and page != "Hidden Admin Panel":
     if auth_mode == "Register Account":
         fullname = st.text_input("Full Name")
         age = st.number_input("Age", min_value=12, max_value=100, value=30)
+        gender = st.radio("Gender / Division", ["Male", "Female"])
         
         if st.button("Sign Up"):
             try:
                 res = supabase.auth.sign_up({"email": email, "password": password})
                 if res.user:
-                    supabase.table("user_profiles").insert({"user_id": res.user.id, "full_name": fullname, "email": email, "age": age}).execute()
-                    st.success("Registration Complete! Please switch to Login mode.")
+                    # Save profile details including the new gender selection
+                    supabase.table("user_profiles").insert({
+                        "user_id": res.user.id, 
+                        "full_name": fullname, 
+                        "email": email, 
+                        "age": age,
+                        "gender": gender
+                    }).execute()
+                    
+                    # AUTO-LOGIN ARCHITECTURE: Instantly log them in 
+                    st.session_state.user = {"id": res.user.id, "email": res.user.email}
+                    st.success("Welcome aboard! Initializing your dashboard...")
+                    st.rerun()
             except Exception as e:
                 st.error(f"Signup error: {e}")
     else:
