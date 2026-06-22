@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#FF4B4B"          # High-energy athletic crimson accent
+backgroundColor = "#0E1117"       # Premium ultra-dark charcoal background
+secondaryBackgroundColor = "#1E222B" # Sleek slate background for sidebar/cards
+textColor = "#FAFAFA"             # Crisp, readable off-white text
+font = "sans serif"               # Clean, modern typography
