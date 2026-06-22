@@ -286,8 +286,16 @@ elif page == "Hidden Admin Panel":
     
     if input_key == settings["admin_secret_key"]:
         st.success("Access Verified.")
-        with st.form("admin_form"):
-            new_dur = st.selectbox("Challenge Duration",, index=.index(settings["challenge_duration_weeks"]))
+with st.form("admin_form"):
+            # 1. Define the week options cleanly
+            duration_options =
+            
+            # 2. Find the default choice 
+            default_selection_index = duration_options.index(settings["challenge_duration_weeks"])
+            
+            # 3. Create the dropdown selector with zero nested commas
+            new_dur = st.selectbox("Challenge Duration", duration_options, index=default_selection_index)
+            
             new_start = st.date_input("Global Challenge Launch Date", datetime.strptime(settings["global_start_date"], "%Y-%m-%d").date())
             new_wkout = st.text_input("Global Benchmark Workout Title", value=settings["workout_name"])
             new_notes = st.text_area("Scoring Rules & Instructions Box", value=settings["workout_notes"])
