@@ -41,7 +41,7 @@ def get_success_badge(rate):
 
 # --- SYSTEM SETTINGS LOAD ---
 settings_query = supabase.table("challenge_settings").select("*").eq("id", 1).execute()
-settings = settings_query.data[0] if settings_query.data else {"admin_secret_key": "driven2026", "challenge_duration_weeks": 6, "global_start_date": "2026-06-22", "workout_name": "TBD", "workout_notes": ""}
+settings = settings_query.data if settings_query.data else {"admin_secret_key": "driven2026", "challenge_duration_weeks": 6, "global_start_date": "2026-06-22", "workout_name": "TBD", "workout_notes": ""}
 
 # --- USER STATE APP FLOW ---
 if "user" not in st.session_state:
@@ -157,7 +157,7 @@ elif page == "Daily Logger":
     log_date = st.date_input("Date", date.today())
     
     existing = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).eq("log_date", str(log_date)).execute()
-    log_data = existing.data[0] if existing.data else {"diet": False, "water": False, "sleep": False, "exercise": False}
+    log_data = existing.data if existing.data else {"diet": False, "water": False, "sleep": False, "exercise": False}
     
     diet = st.checkbox("Strict Paleo Menu Adherence — **5 pts**", value=log_data["diet"])
     water = st.checkbox("Water Tracker Placeholder (Awaiting target confirmation from Coach Bret) — **1 pt**", value=log_data["water"])
@@ -184,7 +184,7 @@ elif page == "Dashboard":
     if not baselines.data:
         st.warning("👋 Set up your profile metrics inside 'Initial Setup & Baselines' to initialize your pipeline.")
     else:
-        b = baselines.data[0]
+        b = baselines.data
         start_dt = datetime.strptime(settings["global_start_date"], "%Y-%m-%d").date()
         total_days = settings["challenge_duration_weeks"] * 7
         days_in = max((date.today() - start_dt).days + 1, 1)
@@ -193,18 +193,66 @@ elif page == "Dashboard":
         possible_so_far = min(days_in, total_days) * 8
         success_rate = (total_earned / possible_so_far * 100) if possible_so_far > 0 else 100.0
         
+        # --- 21st CENTURY METRIC CARDS OVERHAUL ---
+        st.markdown("### ⚡ Current Momentum")
         c1, c2, c3 = st.columns(3)
-        c1.metric("Timeline Milestone", f"Day {min(days_in, total_days)} of {total_days}")
-        c2.metric("Accumulated Points", f"{total_earned}")
-        c3.metric("Your Success Rate", get_success_badge(success_rate))
         
+        with c1:
+            st.markdown(f"""
+            <div style="background-color: #1E222B; padding: 20px; border-radius: 12px; border-left: 5px solid #FF4B4B; box-shadow: 2px 2px 10px rgba(0,0,0,0.3);">
+                <span style="color: #8A9AAB; font-size: 12px; font-weight: bold; text-transform: uppercase;">Timeline Milestone</span>
+                <h2 style="margin: 5px 0 0 0; color: #FAFAFA; font-size: 28px;">Day {min(days_in, total_days)} <span style="font-size: 16px; color: #8A9AAB;">/ {total_days}</span></h2>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with c2:
+            st.markdown(f"""
+            <div style="background-color: #1E222B; padding: 20px; border-radius: 12px; border-left: 5px solid #00E676; box-shadow: 2px 2px 10px rgba(0,0,0,0.3);">
+                <span style="color: #8A9AAB; font-size: 12px; font-weight: bold; text-transform: uppercase;">Accumulated Points</span>
+                <h2 style="margin: 5px 0 0 0; color: #00E676; font-size: 28px;">{total_earned} <span style="font-size: 16px; color: #8A9AAB;">Pts</span></h2>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with c3:
+            badge_color = "#FF4B4B" if success_rate < 60 else ("#FFD600" if success_rate < 75 else "#00E676")
+            st.markdown(f"""
+            <div style="background-color: #1E222B; padding: 20px; border-radius: 12px; border-left: 5px solid {badge_color}; box-shadow: 2px 2px 10px rgba(0,0,0,0.3);">
+                <span style="color: #8A9AAB; font-size: 12px; font-weight: bold; text-transform: uppercase;">Your Success Rate</span>
+                <h4 style="margin: 8px 0 0 0; color: #FAFAFA; font-size: 18px;">{get_success_badge(success_rate)}</h4>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("---")
-        st.subheader("🔒 Your Sealed Personal Configuration (Private)")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Starting Weight", f"{b['start_weight']} lbs")
-        m2.metric("Chest / Waist / Hips", f"{float_to_fraction(b['start_chest'])} / {float_to_fraction(b['start_waist'])} / {float_to_fraction(b['start_hips'])}")
-        m3.metric("Arms (L/R)", f"{float_to_fraction(b['start_left_arm'])} / {float_to_fraction(b['start_right_arm'])}")
-        m4.metric("Thighs (L/R)", f"{float_to_fraction(b['start_left_thigh'])} / {float_to_fraction(b['start_right_thigh'])}")
+        
+        # --- PRIVATE MEASUREMENTS VAULT CARD ---
+        st.markdown(f"""
+        <div style="background-color: #151922; padding: 25px; border-radius: 16px; border: 1px solid #2C3545; box-shadow: 2px 4px 15px rgba(0,0,0,0.4); margin-top: 15px;">
+            <div style="display: flex; align-items: center; margin-bottom: 15px;">
+                <span style="font-size: 22px; margin-right: 10px;">🔒</span>
+                <h3 style="margin: 0; color: #FAFAFA; font-size: 20px;">Your Sealed Personal Configuration (Private)</h3>
+            </div>
+            <p style="color: #8A9AAB; font-size: 13px; margin: -5px 0 20px 0;">These numbers are safely encrypted. No other members or leaderboards can view these raw metrics.</p>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
+                <div style="background-color: #1E222B; padding: 15px; border-radius: 8px;">
+                    <span style="color: #8A9AAB; font-size: 11px; text-transform: uppercase; font-weight: bold;">Starting Weight</span>
+                    <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: #FAFAFA;">{b['start_weight']} lbs</p>
+                </div>
+                <div style="background-color: #1E222B; padding: 15px; border-radius: 8px;">
+                    <span style="color: #8A9AAB; font-size: 11px; text-transform: uppercase; font-weight: bold;">Chest / Waist / Hips</span>
+                    <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #FAFAFA;">{float_to_fraction(b['start_chest'])} / {float_to_fraction(b['start_waist'])} / {float_to_fraction(b['start_hips'])}</p>
+                </div>
+                <div style="background-color: #1E222B; padding: 15px; border-radius: 8px;">
+                    <span style="color: #8A9AAB; font-size: 11px; text-transform: uppercase; font-weight: bold;">Arms (L / R)</span>
+                    <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: #FAFAFA;">{float_to_fraction(b['start_left_arm'])} / {float_to_fraction(b['start_right_arm'])}</p>
+                </div>
+                <div style="background-color: #1E222B; padding: 15px; border-radius: 8px;">
+                    <span style="color: #8A9AAB; font-size: 11px; text-transform: uppercase; font-weight: bold;">Thighs (L / R)</span>
+                    <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: #FAFAFA;">{float_to_fraction(b['start_left_thigh'])} / {float_to_fraction(b['start_right_thigh'])}</p>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
 elif page == "Leaderboard":
     st.header("🏆 The Consolidated Gym Standings")
@@ -239,7 +287,7 @@ elif page == "Hidden Admin Panel":
     if input_key == settings["admin_secret_key"]:
         st.success("Access Verified.")
         with st.form("admin_form"):
-            new_dur = st.selectbox("Challenge Duration", [4, 5, 6, 8], index=[4,5,6,8].index(settings["challenge_duration_weeks"]))
+            new_dur = st.selectbox("Challenge Duration",, index=.index(settings["challenge_duration_weeks"]))
             new_start = st.date_input("Global Challenge Launch Date", datetime.strptime(settings["global_start_date"], "%Y-%m-%d").date())
             new_wkout = st.text_input("Global Benchmark Workout Title", value=settings["workout_name"])
             new_notes = st.text_area("Scoring Rules & Instructions Box", value=settings["workout_notes"])
