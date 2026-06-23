@@ -55,6 +55,8 @@ if st.session_state.user:
     st.sidebar.write(f"Logged in: **{st.session_state.user['email']}**")
     if st.sidebar.button("Log Out"):
         st.session_state.user = None
+        if "nav_page" in st.session_state:
+            del st.session_state.nav_page
         st.rerun()
     
     # Check baseline status to dynamically adjust the user funnel
@@ -73,7 +75,29 @@ else:
 if is_coach:
     navigation_options.append("Admin Configuration Panel")
 
-page = st.sidebar.radio("Go To", navigation_options)
+# --- INTERCEPT PROGRAMMATIC HYPERLINK ROUTING ---
+if "page" in st.query_params:
+    requested_page = st.query_params["page"]
+    if requested_page in navigation_options:
+        st.session_state.nav_page = requested_page
+    
+    # Reset and clear url parameters to keep browser bar completely pristine
+    st.query_params.clear()
+    if is_coach:
+        st.query_params["role"] = "coach"
+    st.rerun()
+
+if "nav_page" not in st.session_state:
+    st.session_state.nav_page = "Dashboard"
+
+try:
+    default_selection_index = navigation_options.index(st.session_state.nav_page)
+except ValueError:
+    default_selection_index = 0
+    st.session_state.nav_page = "Dashboard"
+
+page = st.sidebar.radio("Go To", navigation_options, index=default_selection_index)
+st.session_state.nav_page = page
 
 # --- SIGN UP & LOGIN INTERFACE ---
 if not st.session_state.user and page != "Admin Configuration Panel":
@@ -241,7 +265,15 @@ elif page == "Dashboard":
     logs = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).execute()
     
     if not has_baseline:
-        st.warning("👉 Enter your 'starting' measurements to get set up for the Challenge! Select 'Challenge Measurements' from the menu on the left to begin.")
+        # --- PREMIUM HYPERLINK ONBOARDING MODULE ---
+        st.markdown("""
+        <div style="background-color: #1E222B; padding: 22px; border-radius: 12px; border-left: 5px solid #FF4B4B; box-shadow: 2px 2px 12px rgba(0,0,0,0.4); margin-bottom: 25px;">
+            <span style="color: #FAFAFA; font-size: 15px; font-weight: 500; letter-spacing: 0.3px;">
+                👉 Enter your 'starting' measurements to get set up for the Challenge! 
+                <a href="?page=Challenge+Measurements" target="_self" style="color: #FF4B4B; font-weight: bold; text-decoration: underline; margin-left: 6px; transition: color 0.2s;">Click here to lock them in →</a>
+            </span>
+        </div>
+        """, unsafe_allow_html=True)
     else:
         b = baselines.data
         start_dt = datetime.strptime(settings["global_start_date"], "%Y-%m-%d").date()
