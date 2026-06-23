@@ -104,7 +104,7 @@ if st.session_state.user:
         st.session_state.nav_page = "Dashboard"
         st.rerun()
     
-    # Strict Verification: Only unlock advanced app modules if starting weight is validated
+    # Strict Verification: Only unlock advanced modules if starting weight exists
     baseline_check = supabase.table("user_baselines").select("start_weight").eq("user_id", st.session_state.user["id"]).execute()
     b_check_row = extract_dict(baseline_check.data)
     if b_check_row and b_check_row.get("start_weight") is not None:
@@ -202,7 +202,7 @@ if page == "Challenge Measurements":
     existing_baseline_query = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
     b_data = extract_dict(existing_baseline_query.data)
     
-    # PHASE 1: Initial Baseline Window (First 7 Days) — Active input & revision state
+    # PHASE 1: Initial Baseline Window (First 7 Days)
     if days_since_start <= 7:
         st.markdown("### Step 1: Enter Your Starting Measurements")
         if has_baseline:
@@ -234,7 +234,7 @@ if page == "Challenge Measurements":
                 if w is None:
                     st.error("Starting weight entry is required to save your metrics.")
                 else:
-                    img_str = b_data.get("before_photo", "") # Default retain existing asset if new file box is unselected
+                    img_str = b_data.get("before_photo", "")
                     if uploaded_photo is not None:
                         try:
                             img = Image.open(uploaded_photo)
