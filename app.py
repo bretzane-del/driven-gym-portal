@@ -47,18 +47,26 @@ settings = settings_query.data if settings_query.data else {"admin_secret_key": 
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# --- SIDEBAR NAVIGATION & AUTH LINK ---
-st.sidebar.markdown("### PILOT COMMAND")
+# --- SIDEBAR NAVIGATION WITH HIDDEN COACH ENTRY ---
+st.sidebar.markdown("### CHALLENGE MENU")
 if st.session_state.user:
     st.sidebar.write(f"Logged in: **{st.session_state.user['email']}**")
     if st.sidebar.button("Log Out"):
         st.session_state.user = None
         st.rerun()
 
-page = st.sidebar.radio("Go To", ["Dashboard", "Daily Logger", "Initial Setup & Baselines", "Leaderboard", "Hidden Admin Panel"])
+# Secretly check URL for coach access parameter (?role=coach)
+is_coach = st.query_params.get("role") == "coach"
+
+# Build human-friendly menu options dynamically
+navigation_options = ["Dashboard", "Daily Log", "Challenge Measurements", "Leaderboard"]
+if is_coach:
+    navigation_options.append("Admin Configuration Panel")
+
+page = st.sidebar.radio("Go To", navigation_options)
 
 # --- SIGN UP & LOGIN INTERFACE ---
-if not st.session_state.user and page != "Hidden Admin Panel":
+if not st.session_state.user and page != "Admin Configuration Panel":
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Driven Community Fitness Challenge</h2>", unsafe_allow_html=True)
     auth_mode = st.radio("Choose Action", ["Login", "Register Account"])
     
@@ -99,38 +107,45 @@ if not st.session_state.user and page != "Hidden Admin Panel":
     st.stop()
 
 # --- CUSTOM TWO-PART FRACTION INPUT COMPONENT ---
-def fraction_selector(label):
+def fraction_selector(label, unique_key):
     st.markdown(f"**{label}**")
     c1, c2 = st.columns(2)
-    whole = c1.selectbox("Inches", list(range(0, 80)), index=0, key=f"{label}_w")
-    frac = c2.selectbox("Fraction", FRACTIONS, index=0, key=f"{label}_f")
+    whole = c1.selectbox("Inches", list(range(0, 80)), index=0, key=f"{unique_key}_w")
+    frac = c2.selectbox("Fraction", FRACTIONS, index=0, key=f"{unique_key}_f")
     return whole + FRACTION_VALUES[frac]
 
 # --- PAGES CONTENT IMPLEMENTATION ---
-if page == "Initial Setup & Baselines":
-    st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Lock In Your Baselines</h2>", unsafe_allow_html=True)
+if page == "Challenge Measurements":
+    st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Challenge Measurements</h2>", unsafe_allow_html=True)
+    
     start_dt = datetime.strptime(settings["global_start_date"], "%Y-%m-%d").date()
+    total_challenge_days = int(settings["challenge_duration_weeks"]) * 7
+    end_dt = start_dt + timedelta(days=total_challenge_days)
+    
     days_since_start = (date.today() - start_dt).days
     
-    if days_since_start > 7:
-        st.error(f"Entry Window Closed. Baselines had to be locked in within the first week of the start date ({start_dt}). Please contact Coach Bret.")
-    else:
+    # Check existing data to show status
+    existing_baseline = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
+    has_baseline = len(existing_baseline.data) > 0
+    
+    # PHASE 1: Initial Baseline Window (First 7 Days)
+    if days_since_start <= 7:
+        st.markdown("### Step 1: Lock In Your Starting Baselines")
         st.info(f"🏋️‍♂️ **Official Benchmark Workout:** {settings['workout_name']}\n\n*Instructions:* {settings['workout_notes']}")
         
         with st.form("baseline_form"):
             score = st.text_input("Enter Your Benchmark Workout Score")
+            st.subheader("Starting Tape Measurements")
+            w = st.number_input("Starting Weight (lbs)", min_value=0.0, step=0.1)
+            ch = fraction_selector("Chest", "start_chest")
+            wa = fraction_selector("Waist", "start_waist")
+            hi = fraction_selector("Hips", "start_hips")
+            la = fraction_selector("Left Arm", "start_arm_l")
+            ra = fraction_selector("Right Arm", "start_arm_r")
+            lt = fraction_selector("Left Thigh", "start_thigh_l")
+            rt = fraction_selector("Right Thigh", "start_thigh_r")
             
-            st.markdown("### Tape Measurements")
-            w = st.number_input("Weight (lbs)", min_value=0.0, step=0.1)
-            ch = fraction_selector("Chest")
-            wa = fraction_selector("Waist")
-            hi = fraction_selector("Hips")
-            la = fraction_selector("Left Arm")
-            ra = fraction_selector("Right Arm")
-            lt = fraction_selector("Left Thigh")
-            rt = fraction_selector("Right Thigh")
-            
-            st.markdown("### Private Before Photo (Optional)")
+            st.subheader("Private Profile Photo (Optional)")
             cam_photo = st.camera_input("Snap Baseline Selfie")
             
             if st.form_submit_button("Securely Save My Starting Numbers"):
@@ -148,9 +163,48 @@ if page == "Initial Setup & Baselines":
                     "start_left_arm": la, "start_right_arm": ra, "start_left_thigh": lt, "start_right_thigh": rt,
                     "benchmark_score": score, "before_photo": img_str
                 }).execute()
-                st.success("Baselines successfully encrypted and saved to your private profile vault!")
+                st.success("Starting metrics successfully saved to your private profile vault!")
+                st.rerun()
 
-elif page == "Daily Logger":
+    # PHASE 2: Final Transformation Window (Final Week up to 7 Days Post-Challenge)
+    elif days_since_start >= (total_challenge_days - 7) and days_since_start <= (total_challenge_days + 7):
+        st.markdown("### Step 2: Submit Your Final Transformation Numbers")
+        if not has_baseline:
+            st.warning("No initial baseline record found for your account. Please log your finishing metrics below.")
+            
+        with st.form("final_form"):
+            st.subheader("Finishing Tape Measurements")
+            w_end = st.number_input("Ending Weight (lbs)", min_value=0.0, step=0.1)
+            ch_end = fraction_selector("Ending Chest", "end_chest")
+            wa_end = fraction_selector("Ending Waist", "end_waist")
+            hi_end = fraction_selector("Ending Hips", "end_hips")
+            la_end = fraction_selector("Ending Left Arm", "end_arm_l")
+            ra_end = fraction_selector("Ending Right Arm", "end_arm_r")
+            lt_end = fraction_selector("Ending Left Thigh", "end_thigh_l")
+            rt_end = fraction_selector("Ending Right Thigh", "end_thigh_r")
+            
+            if st.form_submit_button("Securely Save My Finishing Numbers"):
+                supabase.table("user_baselines").upsert({
+                    "user_id": st.session_state.user["id"],
+                    "end_weight": w_end, "end_chest": ch_end, "end_waist": wa_end, "end_hips": hi_end,
+                    "end_left_arm": la_end, "end_right_arm": ra_end, "end_left_thigh": lt_end, "end_right_thigh": rt_end
+                }).execute()
+                st.success("Finishing numbers locked in! Congratulations on completing the challenge!")
+                st.rerun()
+
+    # PHASE 3: Mid-Challenge Locked State
+    else:
+        st.markdown("### Measurement Logs Locked")
+        st.subheader("🔒 Initial Baselines Secured")
+        st.info("Initial measurements are safely encrypted. Your finishing submission window will automatically open during the final week of the challenge.")
+        
+        if has_baseline:
+            b_data = existing_baseline.data
+            st.markdown("#### Your Saved Starting Stats:")
+            st.write(f"**Starting Weight:** {b_data['start_weight']} lbs")
+            st.write(f"**Benchmark Score:** {b_data['benchmark_score']}")
+
+elif page == "Daily Log":
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Daily Performance Log</h2>", unsafe_allow_html=True)
     log_date = st.date_input("Date", date.today())
     
@@ -173,14 +227,14 @@ elif page == "Daily Logger":
         st.success("Points posted successfully!")
 
 elif page == "Dashboard":
-    st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Athlete Recovery & Score Command</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Your Progress Dashboard</h2>", unsafe_allow_html=True)
     
     profile = supabase.table("user_profiles").select("*").eq("user_id", st.session_state.user["id"]).execute()
     baselines = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
     logs = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).execute()
     
     if not baselines.data:
-        st.warning("Set up your profile metrics inside 'Initial Setup & Baselines' to initialize your dashboard pipeline.")
+        st.warning("Set up your profile metrics inside 'Challenge Measurements' to initialize your dashboard pipeline.")
     else:
         b = baselines.data
         start_dt = datetime.strptime(settings["global_start_date"], "%Y-%m-%d").date()
@@ -276,7 +330,7 @@ elif page == "Leaderboard":
     df = pd.DataFrame(leaderboard_data).sort_values(by="Total Points", ascending=False)
     st.dataframe(df, use_container_width=True)
 
-elif page == "Hidden Admin Panel":
+elif page == "Admin Configuration Panel":
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Shared Executive Administration Panel</h2>", unsafe_allow_html=True)
     input_key = st.text_input("Enter Master Secret Admin Key", type="password")
     
