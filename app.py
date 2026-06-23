@@ -101,7 +101,6 @@ if not st.session_state.user:
 elif not has_baseline:
     navigation_options = ["Dashboard", "Challenge Measurements"]
 else:
-    # Standalone Workout tab unlocks alongside operational modules after tape inputs are logged
     navigation_options = ["Dashboard", "Daily Log", "Benchmark Workout", "Challenge Measurements", "Leaderboard"]
 
 if is_coach:
@@ -160,7 +159,6 @@ if not st.session_state.user and page != "Admin Configuration Panel":
 # --- HIGH-COMPACT ADAPTIVE DROP-DOWN GRID SELECTOR ---
 def fraction_selector(label, unique_key):
     st.markdown(f"<div style='margin-top: 12px; font-weight: 600; color: #FAFAFA;'>{label}</div>", unsafe_allow_html=True)
-    # Ratios allocate tight boxes on the left, pushing empty grid columns to the right
     c1, c2, c3 = st.columns([1.5, 1.5, 5])
     whole = c1.selectbox("Inches", list(range(0, 80)), index=0, key=f"{unique_key}_w")
     frac = c2.selectbox("Fraction", FRACTIONS, index=0, key=f"{unique_key}_f")
@@ -186,20 +184,19 @@ if page == "Challenge Measurements":
         st.markdown("### Step 1: Enter Your Starting Measurements")
         
         with st.form("baseline_form"):
-            st.markdown("#### Total Body Mass")
-            # Setting value=None leaves the box blank with an adaptive placeholder string
+            st.markdown("#### Weight")
             w = st.number_input("Starting Weight (lbs)", min_value=0.0, step=0.1, value=None, placeholder="Enter weight...")
             
             st.markdown("<hr style='margin: 20px 0;'>", unsafe_allow_html=True)
-            st.markdown("#### Anthropometric Tape Configurations")
+            st.markdown("#### Measurements")
             
-            ch = fraction_selector("Chest Tracking circumference", "start_chest")
-            wa = fraction_selector("Waist Tracking circumference", "start_waist")
-            hi = fraction_selector("Hips Tracking circumference", "start_hips")
-            la = fraction_selector("Left Arm circumference", "start_chest_arm_l")
-            ra = fraction_selector("Right Arm circumference", "start_chest_arm_r")
-            lt = fraction_selector("Left Thigh circumference", "start_chest_thigh_l")
-            rt = fraction_selector("Right Thigh circumference", "start_chest_thigh_r")
+            ch = fraction_selector("Chest", "start_chest")
+            wa = fraction_selector("Waist", "start_waist")
+            hi = fraction_selector("Hips", "start_hips")
+            la = fraction_selector("Left Arm", "start_chest_arm_l")
+            ra = fraction_selector("Right Arm", "start_chest_arm_r")
+            lt = fraction_selector("Left Thigh", "start_chest_thigh_l")
+            rt = fraction_selector("Right Thigh", "start_chest_thigh_r")
             
             st.markdown("<hr style='margin: 25px 0;'>", unsafe_allow_html=True)
             st.subheader("Private Profile Photo (Optional)")
@@ -209,7 +206,8 @@ if page == "Challenge Measurements":
             if opt_in_camera:
                 cam_photo = st.camera_input("Snap Baseline Selfie")
             
-            if st.form_submit_button("Securely Save My Starting Numbers"):
+            # High-visibility primary accent button
+            if st.form_submit_button("Save", type="primary"):
                 if w is None:
                     st.error("Starting weight entry is required to initialize your dashboard metrics.")
                 else:
@@ -238,7 +236,7 @@ if page == "Challenge Measurements":
             st.warning("No initial baseline record found for your account. Please log your finishing metrics below.")
             
         with st.form("final_form"):
-            st.subheader("Finishing Tape Measurements")
+            st.subheader("Finishing Measurements")
             w_end = st.number_input("Ending Weight (lbs)", min_value=0.0, step=0.1, value=None, placeholder="Enter weight...")
             ch_end = fraction_selector("Ending Chest", "end_chest")
             wa_end = fraction_selector("Ending Waist", "end_waist")
@@ -248,7 +246,8 @@ if page == "Challenge Measurements":
             lt_end = fraction_selector("Ending Left Thigh", "end_thigh_l")
             rt_end = fraction_selector("Ending Right Thigh", "end_thigh_r")
             
-            if st.form_submit_button("Securely Save My Finishing Numbers"):
+            # High-visibility primary accent button
+            if st.form_submit_button("Save", type="primary"):
                 supabase.table("user_baselines").upsert({
                     "user_id": st.session_state.user["id"],
                     "end_weight": w_end, "end_chest": ch_end, "end_waist": wa_end, "end_hips": hi_end,
@@ -287,169 +286,3 @@ elif page == "Benchmark Workout":
                 "benchmark_score": score
             }).execute()
             st.success("Performance matrix securely attached to your athlete challenge vault!")
-            st.rerun()
-
-elif page == "Daily Log":
-    st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Daily Performance Log</h2>", unsafe_allow_html=True)
-    log_date = st.date_input("Date", date.today())
-    
-    existing = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).eq("log_date", str(log_date)).execute()
-    log_data = existing.data if existing.data else {"diet": False, "water": False, "sleep": False, "exercise": False}
-    
-    diet = st.checkbox("Strict Paleo Menu Adherence — **5 pts**", value=log_data.get("diet", False))
-    water = st.checkbox("Water Tracker Placeholder — **1 pt**", value=log_data.get("water", False))
-    sleep = st.checkbox("Sleep Metrics (7-8+ Rest Hours) — **1 pt**", value=log_data.get("sleep", False))
-    exercise = st.checkbox("Daily Activity or Designated Mobility Session — **1 pt**", value=log_data.get("exercise", False))
-    
-    score = (5 if diet else 0) + (1 if water else 0) + (1 if sleep else 0) + (1 if exercise else 0)
-    st.metric("Points Scored", f"{score} / 8")
-    
-    if st.button("Submit Daily Points"):
-        supabase.table("daily_logs").upsert({
-            "user_id": st.session_state.user["id"], "log_date": str(log_date),
-            "diet": diet, "water": water, "sleep": sleep, "exercise": exercise, "daily_score": score
-        }).execute()
-        st.success("Points posted successfully!")
-
-elif page == "Dashboard":
-    st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Your Progress Dashboard</h2>", unsafe_allow_html=True)
-    
-    baselines = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
-    logs = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).execute()
-    
-    if not has_baseline:
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.warning("👉 Enter your 'starting' measurements to get set up for the Challenge!")
-        if st.button("Go Lock In Your Measurements Now →", type="primary"):
-            st.session_state.nav_page = "Challenge Measurements"
-            st.rerun()
-    else:
-        b = baselines.data
-        start_dt = challenge_start_date
-        try:
-            total_weeks = int(settings.get("challenge_duration_weeks", 6))
-        except (ValueError, TypeError):
-            total_weeks = 6
-        total_days = total_weeks * 7
-        days_in = max((date.today() - start_dt).days + 1, 1)
-        
-        total_earned = sum([day.get("daily_score", 0) for day in logs.data])
-        possible_so_far = min(days_in, total_days) * 8
-        success_rate = (total_earned / possible_so_far * 100) if possible_so_far > 0 else 100.0
-        
-        st.markdown("### ⚡ Current Momentum")
-        c1, c2, c3 = st.columns(3)
-        
-        with c1:
-            st.markdown(f"""
-            <div style="background-color: #1E222B; padding: 20px; border-radius: 12px; border-left: 5px solid #FF4B4B; box-shadow: 2px 2px 10px rgba(0,0,0,0.3);">
-                <span style="color: #8A9AAB; font-size: 12px; font-weight: bold; text-transform: uppercase;">Timeline Milestone</span>
-                <h2 style="margin: 5px 0 0 0; color: #FAFAFA; font-size: 28px;">Day {min(days_in, total_days)} <span style="font-size: 16px; color: #8A9AAB;">/ {total_days}</span></h2>
-            </div>
-            """, unsafe_allow_html=True)
-            
-        with c2:
-            st.markdown(f"""
-            <div style="background-color: #1E222B; padding: 20px; border-radius: 12px; border-left: 5px solid #00E676; box-shadow: 2px 2px 10px rgba(0,0,0,0.3);">
-                <span style="color: #8A9AAB; font-size: 12px; font-weight: bold; text-transform: uppercase;">Accumulated Points</span>
-                <h2 style="margin: 5px 0 0 0; color: #00E676; font-size: 28px;">{total_earned} <span style="font-size: 16px; color: #8A9AAB;">Pts</span></h2>
-            </div>
-            """, unsafe_allow_html=True)
-            
-        with c3:
-            badge_color = "#FF4B4B" if success_rate < 60 else ("#FFD600" if success_rate < 75 else "#00E676")
-            st.markdown(f"""
-            <div style="background-color: #1E222B; padding: 20px; border-radius: 12px; border-left: 5px solid {badge_color}; box-shadow: 2px 2px 10px rgba(0,0,0,0.3);">
-                <span style="color: #8A9AAB; font-size: 12px; font-weight: bold; text-transform: uppercase;">Your Success Rate</span>
-                <h4 style="margin: 8px 0 0 0; color: #FAFAFA; font-size: 18px;">{get_success_badge(success_rate)}</h4>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("---")
-        
-        st.markdown(f"""
-        <div style="background-color: #151922; padding: 25px; border-radius: 16px; border: 1px solid #2C3545; box-shadow: 2px 4px 15px rgba(0,0,0,0.4); margin-top: 15px;">
-            <div style="display: flex; align-items: center; margin-bottom: 15px;">
-                <h3 style="margin: 0; color: #FAFAFA; font-size: 20px;">🔒 Sealed Personal Configuration (Private)</h3>
-            </div>
-            <p style="color: #8A9AAB; font-size: 13px; margin: -5px 0 20px 0;">These numbers are safely encrypted. No other members or leaderboards can view these metrics.</p>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
-                <div style="background-color: #1E222B; padding: 15px; border-radius: 8px;">
-                    <span style="color: #8A9AAB; font-size: 11px; text-transform: uppercase; font-weight: bold;">Starting Weight</span>
-                    <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: #FAFAFA;">{b.get('start_weight', 0.0)} lbs</p>
-                </div>
-                <div style="background-color: #1E222B; padding: 15px; border-radius: 8px;">
-                    <span style="color: #8A9AAB; font-size: 11px; text-transform: uppercase; font-weight: bold;">Chest / Waist / Hips</span>
-                    <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #FAFAFA;">{float_to_fraction(b.get('start_chest', 0.0))} / {float_to_fraction(b.get('start_waist', 0.0))} / {float_to_fraction(b.get('start_hips', 0.0))}</p>
-                </div>
-                <div style="background-color: #1E222B; padding: 15px; border-radius: 8px;">
-                    <span style="color: #8A9AAB; font-size: 11px; text-transform: uppercase; font-weight: bold;">Arms (L / R)</span>
-                    <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: #FAFAFA;">{float_to_fraction(b.get('start_left_arm', 0.0))} / {float_to_fraction(b.get('start_right_arm', 0.0))}</p>
-                </div>
-                <div style="background-color: #1E222B; padding: 15px; border-radius: 8px;">
-                    <span style="color: #8A9AAB; font-size: 11px; text-transform: uppercase; font-weight: bold;">Thighs (L / R)</span>
-                    <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: #FAFAFA;">{float_to_fraction(b.get('start_left_thigh', 0.0))} / {float_to_fraction(b.get('start_right_thigh', 0.0))}</p>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-elif page == "Leaderboard":
-    st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>The Consolidated Gym Standings</h2>", unsafe_allow_html=True)
-    
-    profiles = supabase.table("user_profiles").select("*").execute()
-    all_logs = supabase.table("daily_logs").select("*").execute()
-    all_baselines = supabase.table("user_baselines").select("*").execute()
-    
-    leaderboard_data = []
-    
-    for p in profiles.data:
-        user_points = sum([l.get("daily_score", 0) for l in all_logs.data if l.get("user_id") == p.get("user_id")])
-        ub = next((b for b in all_baselines.data if b.get("user_id") == p.get("user_id")), None)
-        
-        lbs_lost = 0.0
-        if ub and ub.get("end_weight") and ub.get("start_weight"):
-            lbs_lost = float(ub["start_weight"] - ub["end_weight"])
-        
-        leaderboard_data.append({
-            "Athlete Name": p.get("full_name", "Anonymous"),
-            "Division": p.get("gender", "Unassigned"),
-            "Total Points": user_points,
-            "Pounds Dropped": f"{lbs_lost:.1f} lbs" if lbs_lost > 0 else "0.0 lbs",
-        })
-        
-    df = pd.DataFrame(leaderboard_data).sort_values(by="Total Points", ascending=False)
-    st.dataframe(df, use_container_width=True)
-
-elif page == "Admin Configuration Panel":
-    st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Shared Executive Administration Panel</h2>", unsafe_allow_html=True)
-    master_key = settings.get("admin_secret_key", "driven2026") if isinstance(settings, dict) else "driven2026"
-    input_key = st.text_input("Enter Master Secret Admin Key", type="password")
-    
-    if input_key == master_key:
-        st.success("Access Verified.")
-        with st.form("admin_form"):
-            duration_options = (4, 5, 6, 8)
-            try:
-                current_weeks = int(settings.get("challenge_duration_weeks", 6))
-                default_selection_index = duration_options.index(current_weeks)
-            except (ValueError, TypeError):
-                default_selection_index = 2
-            
-            new_dur = st.selectbox("Challenge Duration (Weeks)", duration_options, index=default_selection_index)
-            new_start = st.date_input("Global Challenge Launch Date", challenge_start_date)
-            new_wkout = st.text_input("Global Benchmark Workout Title", value=settings.get("workout_name", "TBD"))
-            new_notes = st.text_area("Scoring Rules & Instructions Box", value=settings.get("workout_notes", ""))
-            
-            if st.form_submit_button("Apply Global System Overrides"):
-                supabase.table("challenge_settings").upsert({
-                    "id": 1, 
-                    "admin_secret_key": master_key,
-                    "challenge_duration_weeks": new_dur, 
-                    "global_start_date": str(new_start),
-                    "workout_name": new_wkout, 
-                    "workout_notes": new_notes
-                }).execute()
-                st.success("Global overrides applied! Refreshing pipeline.")
-                st.rerun()
