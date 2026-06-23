@@ -39,15 +39,36 @@ def get_success_badge(rate):
     if rate >= 60: return f"{rate:.1f}% — Needs Focus ⚠️"
     return f"{rate:.1f}% — Danger Zone 🛑"
 
-# --- SYSTEM SETTINGS LOAD & INITIALIZATION ---
-settings_query = supabase.table("challenge_settings").select("*").eq("id", 1).execute()
-settings = settings_query.data if settings_query.data else {"admin_secret_key": "driven2026", "challenge_duration_weeks": 6, "global_start_date": "2026-06-22", "workout_name": "TBD", "workout_notes": ""}
+# --- DEFENSIVE SYSTEM SETTINGS LOAD ---
+DEFAULT_SETTINGS = {
+    "admin_secret_key": "driven2026", 
+    "challenge_duration_weeks": 6, 
+    "global_start_date": "2026-06-22", 
+    "workout_name": "TBD", 
+    "workout_notes": ""
+}
 
-# Bulletproof Type Parsing: Safely ensure the launch date is a native date object
-if isinstance(settings["global_start_date"], str):
-    challenge_start_date = datetime.strptime(settings["global_start_date"], "%Y-%m-%d").date()
-else:
-    challenge_start_date = settings["global_start_date"]
+try:
+    settings_query = supabase.table("challenge_settings").select("*").eq("id", 1).execute()
+    s_data = settings_query.data
+    if s_data and isinstance(s_data, list) and len(s_data) > 0:
+        settings = s_data if isinstance(s_data, dict) else DEFAULT_SETTINGS
+    else:
+        settings = DEFAULT_SETTINGS
+except Exception as e:
+    settings = DEFAULT_SETTINGS
+
+# Completely safeguard the challenge launch date evaluation
+challenge_start_date = date(2026, 6, 22) # Default system fallback
+raw_start_date = settings.get("global_start_date", "2026-06-22")
+
+if isinstance(raw_start_date, str):
+    try:
+        challenge_start_date = datetime.strptime(raw_start_date, "%Y-%m-%d").date()
+    except ValueError:
+        pass
+elif hasattr(raw_start_date, "year"):
+    challenge_start_date = raw_start_date
 
 # --- USER STATE APP FLOW ---
 if "user" not in st.session_state:
@@ -158,7 +179,11 @@ if page == "Challenge Measurements":
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Challenge Measurements</h2>", unsafe_allow_html=True)
     
     start_dt = challenge_start_date
-    total_challenge_days = int(settings["challenge_duration_weeks"]) * 7
+    try:
+        weeks_count = int(settings.get("challenge_duration_weeks", 6))
+    except (ValueError, TypeError):
+        weeks_count = 6
+    total_challenge_days = weeks_count * 7
     end_dt = start_dt + timedelta(days=total_challenge_days)
     
     days_since_start = (date.today() - start_dt).days
@@ -168,7 +193,7 @@ if page == "Challenge Measurements":
     # PHASE 1: Initial Baseline Window (First 7 Days)
     if days_since_start <= 7:
         st.markdown("### Step 1: Lock In Your Starting Baselines")
-        st.info(f"🏋️‍♂️ **Official Benchmark Workout:** {settings['workout_name']}\n\n*Instructions:* {settings['workout_notes']}")
+        st.info(f"🏋️‍♂️ **Official Benchmark Workout:** {settings.get('workout_name', 'TBD')}\n\n*Instructions:* {settings.get('workout_notes', '')}")
         
         with st.form("baseline_form"):
             score = st.text_input("Enter Your Benchmark Workout Score")
@@ -238,8 +263,8 @@ if page == "Challenge Measurements":
         if has_baseline:
             b_data = existing_baseline.data
             st.markdown("#### Your Saved Starting Stats:")
-            st.write(f"**Starting Weight:** {b_data['start_weight']} lbs")
-            st.write(f"**Benchmark Score:** {b_data['benchmark_score']}")
+            st.write(f"**Starting Weight:** {b_data.get('start_weight', 0.0)} lbs")
+            st.write(f"**Benchmark Score:** {b_data.get('benchmark_score', 'N/A')}")
 
 elif page == "Daily Log":
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Daily Performance Log</h2>", unsafe_allow_html=True)
@@ -248,10 +273,10 @@ elif page == "Daily Log":
     existing = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).eq("log_date", str(log_date)).execute()
     log_data = existing.data if existing.data else {"diet": False, "water": False, "sleep": False, "exercise": False}
     
-    diet = st.checkbox("Strict Paleo Menu Adherence — **5 pts**", value=log_data["diet"])
-    water = st.checkbox("Water Tracker Placeholder — **1 pt**", value=log_data["water"])
-    sleep = st.checkbox("Sleep Metrics (7-8+ Rest Hours) — **1 pt**", value=log_data["sleep"])
-    exercise = st.checkbox("Daily Activity or Designated Mobility Session — **1 pt**", value=log_data["exercise"])
+    diet = st.checkbox("Strict Paleo Menu Adherence — **5 pts**", value=log_data.get("diet", False))
+    water = st.checkbox("Water Tracker Placeholder — **1 pt**", value=log_data.get("water", False))
+    sleep = st.checkbox("Sleep Metrics (7-8+ Rest Hours) — **1 pt**", value=log_data.get("sleep", False))
+    exercise = st.checkbox("Daily Activity or Designated Mobility Session — **1 pt**", value=log_data.get("exercise", False))
     
     score = (5 if diet else 0) + (1 if water else 0) + (1 if sleep else 0) + (1 if exercise else 0)
     st.metric("Points Scored", f"{score} / 8")
@@ -270,7 +295,6 @@ elif page == "Dashboard":
     logs = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).execute()
     
     if not has_baseline:
-        # --- PREMIUM HYPERLINK ONBOARDING MODULE ---
         st.markdown("""
         <div style="background-color: #1E222B; padding: 22px; border-radius: 12px; border-left: 5px solid #FF4B4B; box-shadow: 2px 2px 12px rgba(0,0,0,0.4); margin-bottom: 25px;">
             <span style="color: #FAFAFA; font-size: 15px; font-weight: 500; letter-spacing: 0.3px;">
@@ -282,10 +306,14 @@ elif page == "Dashboard":
     else:
         b = baselines.data
         start_dt = challenge_start_date
-        total_days = int(settings["challenge_duration_weeks"]) * 7
+        try:
+            total_weeks = int(settings.get("challenge_duration_weeks", 6))
+        except (ValueError, TypeError):
+            total_weeks = 6
+        total_days = total_weeks * 7
         days_in = max((date.today() - start_dt).days + 1, 1)
         
-        total_earned = sum([day["daily_score"] for day in logs.data])
+        total_earned = sum([day.get("daily_score", 0) for day in logs.data])
         possible_so_far = min(days_in, total_days) * 8
         success_rate = (total_earned / possible_so_far * 100) if possible_so_far > 0 else 100.0
         
@@ -329,19 +357,19 @@ elif page == "Dashboard":
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
                 <div style="background-color: #1E222B; padding: 15px; border-radius: 8px;">
                     <span style="color: #8A9AAB; font-size: 11px; text-transform: uppercase; font-weight: bold;">Starting Weight</span>
-                    <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: #FAFAFA;">{b['start_weight']} lbs</p>
+                    <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: #FAFAFA;">{b.get('start_weight', 0.0)} lbs</p>
                 </div>
                 <div style="background-color: #1E222B; padding: 15px; border-radius: 8px;">
                     <span style="color: #8A9AAB; font-size: 11px; text-transform: uppercase; font-weight: bold;">Chest / Waist / Hips</span>
-                    <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #FAFAFA;">{float_to_fraction(b['start_chest'])} / {float_to_fraction(b['start_waist'])} / {float_to_fraction(b['start_hips'])}</p>
+                    <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #FAFAFA;">{float_to_fraction(b.get('start_chest', 0.0))} / {float_to_fraction(b.get('start_waist', 0.0))} / {float_to_fraction(b.get('start_hips', 0.0))}</p>
                 </div>
                 <div style="background-color: #1E222B; padding: 15px; border-radius: 8px;">
                     <span style="color: #8A9AAB; font-size: 11px; text-transform: uppercase; font-weight: bold;">Arms (L / R)</span>
-                    <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: #FAFAFA;">{float_to_fraction(b['start_left_arm'])} / {float_to_fraction(b['start_right_arm'])}</p>
+                    <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: #FAFAFA;">{float_to_fraction(b.get('start_left_arm', 0.0))} / {float_to_fraction(b.get('start_right_arm', 0.0))}</p>
                 </div>
                 <div style="background-color: #1E222B; padding: 15px; border-radius: 8px;">
                     <span style="color: #8A9AAB; font-size: 11px; text-transform: uppercase; font-weight: bold;">Thighs (L / R)</span>
-                    <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: #FAFAFA;">{float_to_fraction(b['start_left_thigh'])} / {float_to_fraction(b['start_right_thigh'])}</p>
+                    <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: #FAFAFA;">{float_to_fraction(b.get('start_left_thigh', 0.0))} / {float_to_fraction(b.get('start_right_thigh', 0.0))}</p>
                 </div>
             </div>
         </div>
@@ -357,15 +385,15 @@ elif page == "Leaderboard":
     leaderboard_data = []
     
     for p in profiles.data:
-        user_points = sum([l["daily_score"] for l in all_logs.data if l["user_id"] == p["user_id"]])
-        ub = next((b for b in all_baselines.data if b["user_id"] == p["user_id"]), None)
+        user_points = sum([l.get("daily_score", 0) for l in all_logs.data if l.get("user_id") == p.get("user_id")])
+        ub = next((b for b in all_baselines.data if b.get("user_id") == p.get("user_id")), None)
         
         lbs_lost = 0.0
-        if ub and ub["end_weight"] and ub["start_weight"]:
+        if ub and ub.get("end_weight") and ub.get("start_weight"):
             lbs_lost = float(ub["start_weight"] - ub["end_weight"])
         
         leaderboard_data.append({
-            "Athlete Name": p["full_name"],
+            "Athlete Name": p.get("full_name", "Anonymous"),
             "Division": p.get("gender", "Unassigned"),
             "Total Points": user_points,
             "Pounds Dropped": f"{lbs_lost:.1f} lbs" if lbs_lost > 0 else "0.0 lbs",
@@ -376,27 +404,28 @@ elif page == "Leaderboard":
 
 elif page == "Admin Configuration Panel":
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Shared Executive Administration Panel</h2>", unsafe_allow_html=True)
+    master_key = settings.get("admin_secret_key", "driven2026") if isinstance(settings, dict) else "driven2026"
     input_key = st.text_input("Enter Master Secret Admin Key", type="password")
     
-    if input_key == settings["admin_secret_key"]:
+    if input_key == master_key:
         st.success("Access Verified.")
         with st.form("admin_form"):
             duration_options = (4, 5, 6, 8)
             try:
-                current_weeks = int(settings["challenge_duration_weeks"])
+                current_weeks = int(settings.get("challenge_duration_weeks", 6))
                 default_selection_index = duration_options.index(current_weeks)
-            except:
+            except (ValueError, TypeError):
                 default_selection_index = 2
             
             new_dur = st.selectbox("Challenge Duration (Weeks)", duration_options, index=default_selection_index)
             new_start = st.date_input("Global Challenge Launch Date", challenge_start_date)
-            new_wkout = st.text_input("Global Benchmark Workout Title", value=settings["workout_name"])
-            new_notes = st.text_area("Scoring Rules & Instructions Box", value=settings["workout_notes"])
+            new_wkout = st.text_input("Global Benchmark Workout Title", value=settings.get("workout_name", "TBD"))
+            new_notes = st.text_area("Scoring Rules & Instructions Box", value=settings.get("workout_notes", ""))
             
             if st.form_submit_button("Apply Global System Overrides"):
                 supabase.table("challenge_settings").upsert({
                     "id": 1, 
-                    "admin_secret_key": settings["admin_secret_key"],
+                    "admin_secret_key": master_key,
                     "challenge_duration_weeks": new_dur, 
                     "global_start_date": str(new_start),
                     "workout_name": new_wkout, 
