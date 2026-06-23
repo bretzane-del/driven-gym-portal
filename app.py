@@ -21,9 +21,21 @@ except Exception as e:
 
 st.set_page_config(page_title="Driven Gym Portal", page_icon="💪", layout="wide")
 
-# --- CONVERSION HELPERS ---
+# --- DATA UNPACKING & CONVERSION HELPERS ---
 FRACTIONS = ["0", "1/16", "1/8", "3/16", "1/4", "5/16", "3/8", "7/16", "1/2", "9/16", "5/8", "11/16", "3/4", "13/16", "7/8", "15/16"]
 FRACTION_VALUES = {f: i/16 for i, f in enumerate(FRACTIONS)}
+
+def extract_dict(data_source):
+    """Safely extracts a single dictionary out of deeply nested list structures."""
+    if not data_source:
+        return {}
+    current = data_source
+    while isinstance(current, list):
+        if len(current) > 0:
+            current = current
+        else:
+            return {}
+    return current if isinstance(current, dict) else {}
 
 def float_to_fraction(val):
     if not val or val == 0: return "0"
@@ -31,6 +43,15 @@ def float_to_fraction(val):
     frac = val - whole
     closest_frac = min(FRACTIONS, key=lambda x: abs(FRACTION_VALUES[x] - frac))
     return f"{whole}\"" if closest_frac == "0" else f"{whole} {closest_frac}\""
+
+def get_inch_and_frac_index(val):
+    """Parses saved decimal floats back into separate whole inches and selectbox indices."""
+    if not val:
+        return 0, 0
+    whole = int(val)
+    frac = val - whole
+    closest_frac = min(FRACTIONS, key=lambda x: abs(FRACTION_VALUES[x] - frac))
+    return whole, FRACTIONS.index(closest_frac)
 
 # --- DYNAMIC SUCCESS GRADING SCALE ---
 def get_success_badge(rate):
@@ -50,11 +71,7 @@ DEFAULT_SETTINGS = {
 
 try:
     settings_query = supabase.table("challenge_settings").select("*").eq("id", 1).execute()
-    s_data = settings_query.data
-    if s_data and isinstance(s_data, list) and len(s_data) > 0:
-        settings = s_data if isinstance(s_data, dict) else DEFAULT_SETTINGS
-    else:
-        settings = DEFAULT_SETTINGS
+    settings = extract_dict(settings_query.data) if settings_query.data else DEFAULT_SETTINGS
 except Exception as e:
     settings = DEFAULT_SETTINGS
 
@@ -73,11 +90,10 @@ elif hasattr(raw_start_date, "year"):
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# Initialize native internal navigation state tracking
 if "nav_page" not in st.session_state:
     st.session_state.nav_page = "Dashboard"
 
-# --- SIDEBAR NAVIGATION WITH SECURE PRIVILEGE GATES ---
+# --- SIDEBAR NAVIGATION WITH SECURE FUNNEL GATES ---
 st.sidebar.markdown("### CHALLENGE MENU")
 
 has_baseline = False
@@ -88,14 +104,14 @@ if st.session_state.user:
         st.session_state.nav_page = "Dashboard"
         st.rerun()
     
-    # Check baseline status to dynamically adjust the user funnel
-    baseline_check = supabase.table("user_baselines").select("user_id").eq("user_id", st.session_state.user["id"]).execute()
-    has_baseline = len(baseline_check.data) > 0
+    # Strict Verification: Only unlock advanced app modules if starting weight is validated
+    baseline_check = supabase.table("user_baselines").select("start_weight").eq("user_id", st.session_state.user["id"]).execute()
+    b_check_row = extract_dict(baseline_check.data)
+    if b_check_row and b_check_row.get("start_weight") is not None:
+        has_baseline = True
 
-# Secretly check URL for coach access parameter (?role=coach)
 is_coach = st.query_params.get("role") == "coach"
 
-# SECURE GATING MAPPING: Dictate exactly who can see what menus
 if not st.session_state.user:
     navigation_options = ["Dashboard"]
 elif not has_baseline:
@@ -156,12 +172,17 @@ if not st.session_state.user and page != "Admin Configuration Panel":
                 st.error("Invalid login credentials.")
     st.stop()
 
-# --- HIGH-COMPACT ADAPTIVE DROP-DOWN GRID SELECTOR ---
-def fraction_selector(label, unique_key):
+# --- HIGH-COMPACT REVISION-AWARE SELECTOR ---
+def fraction_selector(label, unique_key, current_val=0.0):
     st.markdown(f"<div style='margin-top: 12px; font-weight: 600; color: #FAFAFA;'>{label}</div>", unsafe_allow_html=True)
+    default_inch, default_frac_idx = get_inch_and_frac_index(current_val)
+    
     c1, c2, c3 = st.columns([1.5, 1.5, 5])
-    whole = c1.selectbox("Inches", list(range(0, 80)), index=0, key=f"{unique_key}_w")
-    frac = c2.selectbox("Fraction", FRACTIONS, index=0, key=f"{unique_key}_f")
+    inch_opts = list(range(0, 80))
+    def_inch_idx = inch_opts.index(default_inch) if default_inch in inch_opts else 0
+    
+    whole = c1.selectbox("Inches", inch_opts, index=def_inch_idx, key=f"{unique_key}_w")
+    frac = c2.selectbox("Fraction", FRACTIONS, index=default_frac_idx, key=f"{unique_key}_f")
     return whole + FRACTION_VALUES[frac]
 
 # --- PAGES CONTENT IMPLEMENTATION ---
@@ -177,38 +198,43 @@ if page == "Challenge Measurements":
     end_dt = start_dt + timedelta(days=total_challenge_days)
     
     days_since_start = (date.today() - start_dt).days
-    existing_baseline = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
     
-    # PHASE 1: Initial Baseline Window (First 7 Days)
+    existing_baseline_query = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
+    b_data = extract_dict(existing_baseline_query.data)
+    
+    # PHASE 1: Initial Baseline Window (First 7 Days) — Active input & revision state
     if days_since_start <= 7:
         st.markdown("### Step 1: Enter Your Starting Measurements")
+        if has_baseline:
+            st.info("✏️ **Revision Mode Active:** Your currently saved measurements are pre-populated below. You can modify any field and save changes until your initial challenge week expires.")
+            current_weight = b_data.get("start_weight")
+        else:
+            current_weight = None
         
         with st.form("baseline_form"):
             st.markdown("#### Weight")
-            w = st.number_input("Starting Weight (lbs)", min_value=0.0, step=0.1, value=None, placeholder="Enter weight...")
+            w = st.number_input("Starting Weight (lbs)", min_value=0.0, step=0.1, value=current_weight, placeholder="Enter weight...")
             
             st.markdown("<hr style='margin: 20px 0;'>", unsafe_allow_html=True)
             st.markdown("#### Measurements")
             
-            ch = fraction_selector("Chest", "start_chest")
-            wa = fraction_selector("Waist", "start_waist")
-            hi = fraction_selector("Hips", "start_hips")
-            la = fraction_selector("Left Arm", "start_chest_arm_l")
-            ra = fraction_selector("Right Arm", "start_chest_arm_r")
-            lt = fraction_selector("Left Thigh", "start_chest_thigh_l")
-            rt = fraction_selector("Right Thigh", "start_chest_thigh_r")
+            ch = fraction_selector("Chest", "start_chest", b_data.get("start_chest", 0.0))
+            wa = fraction_selector("Waist", "start_waist", b_data.get("start_waist", 0.0))
+            hi = fraction_selector("Hips", "start_hips", b_data.get("start_hips", 0.0))
+            la = fraction_selector("Left Arm", "start_chest_arm_l", b_data.get("start_left_arm", 0.0))
+            ra = fraction_selector("Right Arm", "start_chest_arm_r", b_data.get("start_right_arm", 0.0))
+            lt = fraction_selector("Left Thigh", "start_chest_thigh_l", b_data.get("start_left_thigh", 0.0))
+            rt = fraction_selector("Right Thigh", "start_chest_thigh_r", b_data.get("start_right_thigh", 0.0))
             
             st.markdown("<hr style='margin: 25px 0;'>", unsafe_allow_html=True)
             st.subheader("Private Profile Photo (Optional)")
-            
-            # Upgraded to Native Mobile-Friendly File Uploader
             uploaded_photo = st.file_uploader("Snap or select a baseline photo", type=["jpg", "jpeg", "png"])
             
             if st.form_submit_button("Save", type="primary"):
                 if w is None:
-                    st.error("Starting weight entry is required to initialize your dashboard metrics.")
+                    st.error("Starting weight entry is required to save your metrics.")
                 else:
-                    img_str = ""
+                    img_str = b_data.get("before_photo", "") # Default retain existing asset if new file box is unselected
                     if uploaded_photo is not None:
                         try:
                             img = Image.open(uploaded_photo)
@@ -219,7 +245,7 @@ if page == "Challenge Measurements":
                             img.save(buffered, format="JPEG", quality=75)
                             img_str = base64.b64encode(buffered.getvalue()).decode()
                         except Exception as img_err:
-                            st.warning("Could not process photo file format. Saving measurements without image asset.")
+                            st.warning("Could not process photo file format. Retaining original configuration.")
                     
                     supabase.table("user_baselines").upsert({
                         "user_id": st.session_state.user["id"],
@@ -227,26 +253,23 @@ if page == "Challenge Measurements":
                         "start_left_arm": la, "start_right_arm": ra, "start_left_thigh": lt, "start_right_thigh": rt,
                         "before_photo": img_str
                     }).execute()
-                    st.success("Starting metrics successfully saved to your private profile vault!")
+                    st.success("Measurements recorded successfully!")
                     st.session_state.nav_page = "Dashboard"
                     st.rerun()
 
     # PHASE 2: Final Transformation Window (Final Week up to 7 Days Post-Challenge)
     elif days_since_start >= (total_challenge_days - 7) and days_since_start <= (total_challenge_days + 7):
         st.markdown("### Step 2: Submit Your Final Transformation Numbers")
-        if not has_baseline:
-            st.warning("No initial baseline record found for your account. Please log your finishing metrics below.")
-            
         with st.form("final_form"):
             st.subheader("Finishing Measurements")
-            w_end = st.number_input("Ending Weight (lbs)", min_value=0.0, step=0.1, value=None, placeholder="Enter weight...")
-            ch_end = fraction_selector("Ending Chest", "end_chest")
-            wa_end = fraction_selector("Ending Waist", "end_waist")
-            hi_end = fraction_selector("Ending Hips", "end_hips")
-            la_end = fraction_selector("Ending Left Arm", "end_arm_l")
-            ra_end = fraction_selector("Ending Right Arm", "end_arm_r")
-            lt_end = fraction_selector("Ending Left Thigh", "end_thigh_l")
-            rt_end = fraction_selector("Ending Right Thigh", "end_thigh_r")
+            w_end = st.number_input("Ending Weight (lbs)", min_value=0.0, step=0.1, value=b_data.get("end_weight"), placeholder="Enter weight...")
+            ch_end = fraction_selector("Ending Chest", "end_chest", b_data.get("end_chest", 0.0))
+            wa_end = fraction_selector("Ending Waist", "end_waist", b_data.get("end_waist", 0.0))
+            hi_end = fraction_selector("Ending Hips", "end_hips", b_data.get("end_hips", 0.0))
+            la_end = fraction_selector("Ending Left Arm", "end_arm_l", b_data.get("end_left_arm", 0.0))
+            ra_end = fraction_selector("Ending Right Arm", "end_arm_r", b_data.get("end_right_arm", 0.0))
+            lt_end = fraction_selector("Ending Left Thigh", "end_thigh_l", b_data.get("end_left_thigh", 0.0))
+            rt_end = fraction_selector("Ending Right Thigh", "end_thigh_r", b_data.get("end_right_thigh", 0.0))
             
             if st.form_submit_button("Save", type="primary"):
                 supabase.table("user_baselines").upsert({
@@ -254,7 +277,7 @@ if page == "Challenge Measurements":
                     "end_weight": w_end, "end_chest": ch_end, "end_waist": wa_end, "end_hips": hi_end,
                     "end_left_arm": la_end, "end_right_arm": ra_end, "end_left_thigh": lt_end, "end_right_thigh": rt_end
                 }).execute()
-                st.success("Finishing numbers locked in! Congratulations on completing the challenge!")
+                st.success("Finishing numbers locked in!")
                 st.session_state.nav_page = "Dashboard"
                 st.rerun()
 
@@ -263,18 +286,16 @@ if page == "Challenge Measurements":
         st.markdown("### Measurement Logs Locked")
         st.subheader("🔒 Initial Baselines Secured")
         st.info("Initial measurements are safely encrypted. Your finishing submission window will automatically open during the final week of the challenge.")
-        
-        if has_baseline:
-            b_data = existing_baseline.data
-            st.markdown("#### Your Saved Starting Stats:")
-            st.write(f"**Starting Weight:** {b_data.get('start_weight', 0.0)} lbs")
+        st.markdown("#### Your Locked Starting Stats:")
+        st.write(f"**Starting Weight:** {b_data.get('start_weight', 0.0)} lbs")
 
 elif page == "Benchmark Workout":
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Benchmark Workout Score Entry</h2>", unsafe_allow_html=True)
     st.info(f"🏋️‍♂️ **Official Workout Designation:** {settings.get('workout_name', 'TBD')}\n\n*Instructions:* {settings.get('workout_notes', 'Performance parameters pending update from coach.')}")
     
-    existing_baseline = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
-    current_saved_score = existing_baseline.data.get("benchmark_score", "") if existing_baseline.data else ""
+    existing_baseline = supabase.table("user_baselines").select("benchmark_score").eq("user_id", st.session_state.user["id"]).execute()
+    b_row = extract_dict(existing_baseline.data)
+    current_saved_score = b_row.get("benchmark_score", "") if b_row else ""
     
     if current_saved_score:
         st.success(f"Locked Score on Profile: **{current_saved_score}**")
@@ -286,7 +307,7 @@ elif page == "Benchmark Workout":
                 "user_id": st.session_state.user["id"],
                 "benchmark_score": score
             }).execute()
-            st.success("Performance matrix securely attached to your athlete challenge vault!")
+            st.success("Performance metrics successfully recorded!")
             st.rerun()
 
 elif page == "Daily Log":
@@ -294,7 +315,7 @@ elif page == "Daily Log":
     log_date = st.date_input("Date", date.today())
     
     existing = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).eq("log_date", str(log_date)).execute()
-    log_data = existing.data if existing.data else {"diet": False, "water": False, "sleep": False, "exercise": False}
+    log_data = extract_dict(existing.data) if existing.data else {"diet": False, "water": False, "sleep": False, "exercise": False}
     
     diet = st.checkbox("Strict Paleo Menu Adherence — **5 pts**", value=log_data.get("diet", False))
     water = st.checkbox("Water Tracker Placeholder — **1 pt**", value=log_data.get("water", False))
@@ -324,7 +345,7 @@ elif page == "Dashboard":
             st.session_state.nav_page = "Challenge Measurements"
             st.rerun()
     else:
-        b = baselines.data
+        b = extract_dict(baselines.data)
         start_dt = challenge_start_date
         try:
             total_weeks = int(settings.get("challenge_duration_weeks", 6))
@@ -333,7 +354,7 @@ elif page == "Dashboard":
         total_days = total_weeks * 7
         days_in = max((date.today() - start_dt).days + 1, 1)
         
-        total_earned = sum([day.get("daily_score", 0) for day in logs.data])
+        total_earned = sum([day.get("daily_score", 0) for day in logs.data if isinstance(day, dict)])
         possible_so_far = min(days_in, total_days) * 8
         success_rate = (total_earned / possible_so_far * 100) if possible_so_far > 0 else 100.0
         
@@ -405,8 +426,8 @@ elif page == "Leaderboard":
     leaderboard_data = []
     
     for p in profiles.data:
-        user_points = sum([l.get("daily_score", 0) for l in all_logs.data if l.get("user_id") == p.get("user_id")])
-        ub = next((b for b in all_baselines.data if b.get("user_id") == p.get("user_id")), None)
+        user_points = sum([l.get("daily_score", 0) for l in all_logs.data if isinstance(l, dict) and l.get("user_id") == p.get("user_id")])
+        ub = next((b for b in all_baselines.data if isinstance(b, dict) and b.get("user_id") == p.get("user_id")), None)
         
         lbs_lost = 0.0
         if ub and ub.get("end_weight") and ub.get("start_weight"):
@@ -424,7 +445,7 @@ elif page == "Leaderboard":
 
 elif page == "Admin Configuration Panel":
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Shared Executive Administration Panel</h2>", unsafe_allow_html=True)
-    master_key = settings.get("admin_secret_key", "driven2026") if isinstance(settings, dict) else "driven2026"
+    master_key = settings.get("admin_secret_key", "driven2026")
     input_key = st.text_input("Enter Master Secret Admin Key", type="password")
     
     if input_key == master_key:
