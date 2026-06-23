@@ -39,9 +39,15 @@ def get_success_badge(rate):
     if rate >= 60: return f"{rate:.1f}% — Needs Focus ⚠️"
     return f"{rate:.1f}% — Danger Zone 🛑"
 
-# --- SYSTEM SETTINGS LOAD ---
+# --- SYSTEM SETTINGS LOAD & INITIALIZATION ---
 settings_query = supabase.table("challenge_settings").select("*").eq("id", 1).execute()
 settings = settings_query.data if settings_query.data else {"admin_secret_key": "driven2026", "challenge_duration_weeks": 6, "global_start_date": "2026-06-22", "workout_name": "TBD", "workout_notes": ""}
+
+# Bulletproof Type Parsing: Safely ensure the launch date is a native date object
+if isinstance(settings["global_start_date"], str):
+    challenge_start_date = datetime.strptime(settings["global_start_date"], "%Y-%m-%d").date()
+else:
+    challenge_start_date = settings["global_start_date"]
 
 # --- USER STATE APP FLOW ---
 if "user" not in st.session_state:
@@ -81,7 +87,6 @@ if "page" in st.query_params:
     if requested_page in navigation_options:
         st.session_state.nav_page = requested_page
     
-    # Reset and clear url parameters to keep browser bar completely pristine
     st.query_params.clear()
     if is_coach:
         st.query_params["role"] = "coach"
@@ -152,7 +157,7 @@ def fraction_selector(label, unique_key):
 if page == "Challenge Measurements":
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Challenge Measurements</h2>", unsafe_allow_html=True)
     
-    start_dt = datetime.strptime(settings["global_start_date"], "%Y-%m-%d").date()
+    start_dt = challenge_start_date
     total_challenge_days = int(settings["challenge_duration_weeks"]) * 7
     end_dt = start_dt + timedelta(days=total_challenge_days)
     
@@ -172,10 +177,10 @@ if page == "Challenge Measurements":
             ch = fraction_selector("Chest", "start_chest")
             wa = fraction_selector("Waist", "start_waist")
             hi = fraction_selector("Hips", "start_hips")
-            la = fraction_selector("Left Arm", "start_arm_l")
-            ra = fraction_selector("Right Arm", "start_arm_r")
-            lt = fraction_selector("Left Thigh", "start_thigh_l")
-            rt = fraction_selector("Right Thigh", "start_thigh_r")
+            la = fraction_selector("Left Arm", "start_chest_arm_l")
+            ra = fraction_selector("Right Arm", "start_chest_arm_r")
+            lt = fraction_selector("Left Thigh", "start_chest_thigh_l")
+            rt = fraction_selector("Right Thigh", "start_chest_thigh_r")
             
             st.subheader("Private Profile Photo (Optional)")
             cam_photo = st.camera_input("Snap Baseline Selfie")
@@ -276,8 +281,8 @@ elif page == "Dashboard":
         """, unsafe_allow_html=True)
     else:
         b = baselines.data
-        start_dt = datetime.strptime(settings["global_start_date"], "%Y-%m-%d").date()
-        total_days = settings["challenge_duration_weeks"] * 7
+        start_dt = challenge_start_date
+        total_days = int(settings["challenge_duration_weeks"]) * 7
         days_in = max((date.today() - start_dt).days + 1, 1)
         
         total_earned = sum([day["daily_score"] for day in logs.data])
@@ -384,7 +389,7 @@ elif page == "Admin Configuration Panel":
                 default_selection_index = 2
             
             new_dur = st.selectbox("Challenge Duration (Weeks)", duration_options, index=default_selection_index)
-            new_start = st.date_input("Global Challenge Launch Date", datetime.strptime(settings["global_start_date"], "%Y-%m-%d").date())
+            new_start = st.date_input("Global Challenge Launch Date", challenge_start_date)
             new_wkout = st.text_input("Global Benchmark Workout Title", value=settings["workout_name"])
             new_notes = st.text_area("Scoring Rules & Instructions Box", value=settings["workout_notes"])
             
