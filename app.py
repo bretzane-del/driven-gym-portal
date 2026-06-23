@@ -105,10 +105,13 @@ if st.session_state.user:
         st.rerun()
     
     # Strict Verification: Only unlock advanced modules if starting weight exists
-    baseline_check = supabase.table("user_baselines").select("start_weight").eq("user_id", st.session_state.user["id"]).execute()
-    b_check_row = extract_dict(baseline_check.data)
-    if b_check_row and b_check_row.get("start_weight") is not None:
-        has_baseline = True
+    try:
+        baseline_check = supabase.table("user_baselines").select("start_weight").eq("user_id", st.session_state.user["id"]).execute()
+        b_check_row = extract_dict(baseline_check.data)
+        if b_check_row and b_check_row.get("start_weight") is not None:
+            has_baseline = True
+    except Exception:
+        has_baseline = False
 
 is_coach = st.query_params.get("role") == "coach"
 
@@ -174,10 +177,10 @@ if not st.session_state.user and page != "Admin Configuration Panel":
 
 # --- HIGH-COMPACT REVISION-AWARE SELECTOR ---
 def fraction_selector(label, unique_key, current_val=0.0):
-    st.markdown(f"<div style='margin-top: 12px; font-weight: 600; color: #FAFAFA;'>{label}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='margin-top: 10px; font-weight: 600; color: #FAFAFA;'>{label}</div>", unsafe_allow_html=True)
     default_inch, default_frac_idx = get_inch_and_frac_index(current_val)
     
-    c1, c2, c3 = st.columns([1.5, 1.5, 5])
+    c1, c2, c3 = st.columns()
     inch_opts = list(range(0, 80))
     def_inch_idx = inch_opts.index(default_inch) if default_inch in inch_opts else 0
     
@@ -199,8 +202,11 @@ if page == "Challenge Measurements":
     
     days_since_start = (date.today() - start_dt).days
     
-    existing_baseline_query = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
-    b_data = extract_dict(existing_baseline_query.data)
+    try:
+        existing_baseline_query = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
+        b_data = extract_dict(existing_baseline_query.data)
+    except Exception:
+        b_data = {}
     
     # PHASE 1: Initial Baseline Window (First 7 Days)
     if days_since_start <= 7:
@@ -215,7 +221,7 @@ if page == "Challenge Measurements":
             st.markdown("#### Weight")
             w = st.number_input("Starting Weight (lbs)", min_value=0.0, step=0.1, value=current_weight, placeholder="Enter weight...")
             
-            st.markdown("<hr style='margin: 20px 0;'>", unsafe_allow_html=True)
+            st.markdown("---")
             st.markdown("#### Measurements")
             
             ch = fraction_selector("Chest", "start_chest", b_data.get("start_chest", 0.0))
@@ -226,7 +232,7 @@ if page == "Challenge Measurements":
             lt = fraction_selector("Left Thigh", "start_chest_thigh_l", b_data.get("start_left_thigh", 0.0))
             rt = fraction_selector("Right Thigh", "start_chest_thigh_r", b_data.get("start_right_thigh", 0.0))
             
-            st.markdown("<hr style='margin: 25px 0;'>", unsafe_allow_html=True)
+            st.markdown("---")
             st.subheader("Private Profile Photo (Optional)")
             uploaded_photo = st.file_uploader("Snap or select a baseline photo", type=["jpg", "jpeg", "png"])
             
@@ -244,20 +250,23 @@ if page == "Challenge Measurements":
                             buffered = io.BytesIO()
                             img.save(buffered, format="JPEG", quality=75)
                             img_str = base64.b64encode(buffered.getvalue()).decode()
-                        except Exception as img_err:
-                            st.warning("Could not process photo file format. Retaining original configuration.")
+                        except Exception:
+                            pass
                     
-                    supabase.table("user_baselines").upsert({
-                        "user_id": st.session_state.user["id"],
-                        "start_weight": w, "start_chest": ch, "start_waist": wa, "start_hips": hi,
-                        "start_left_arm": la, "start_right_arm": ra, "start_left_thigh": lt, "start_right_thigh": rt,
-                        "before_photo": img_str
-                    }).execute()
-                    st.success("Measurements recorded successfully!")
-                    st.session_state.nav_page = "Dashboard"
-                    st.rerun()
+                    try:
+                        supabase.table("user_baselines").upsert({
+                            "user_id": st.session_state.user["id"],
+                            "start_weight": w, "start_chest": ch, "start_waist": wa, "start_hips": hi,
+                            "start_left_arm": la, "start_right_arm": ra, "start_left_thigh": lt, "start_right_thigh": rt,
+                            "before_photo": img_str
+                        }).execute()
+                        st.success("Measurements recorded successfully!")
+                        st.session_state.nav_page = "Dashboard"
+                        st.rerun()
+                    except Exception as db_err:
+                        st.error(f"Database error: {db_err}")
 
-    # PHASE 2: Final Transformation Window (Final Week up to 7 Days Post-Challenge)
+    # PHASE 2: Final Transformation Window
     elif days_since_start >= (total_challenge_days - 7) and days_since_start <= (total_challenge_days + 7):
         st.markdown("### Step 2: Submit Your Final Transformation Numbers")
         with st.form("final_form"):
@@ -272,14 +281,17 @@ if page == "Challenge Measurements":
             rt_end = fraction_selector("Ending Right Thigh", "end_thigh_r", b_data.get("end_right_thigh", 0.0))
             
             if st.form_submit_button("Save", type="primary"):
-                supabase.table("user_baselines").upsert({
-                    "user_id": st.session_state.user["id"],
-                    "end_weight": w_end, "end_chest": ch_end, "end_waist": wa_end, "end_hips": hi_end,
-                    "end_left_arm": la_end, "end_right_arm": ra_end, "end_left_thigh": lt_end, "end_right_thigh": rt_end
-                }).execute()
-                st.success("Finishing numbers locked in!")
-                st.session_state.nav_page = "Dashboard"
-                st.rerun()
+                try:
+                    supabase.table("user_baselines").upsert({
+                        "user_id": st.session_state.user["id"],
+                        "end_weight": w_end, "end_chest": ch_end, "end_waist": wa_end, "end_hips": hi_end,
+                        "end_left_arm": la_end, "end_right_arm": ra_end, "end_left_thigh": lt_end, "end_right_thigh": rt_end
+                    }).execute()
+                    st.success("Finishing numbers locked in!")
+                    st.session_state.nav_page = "Dashboard"
+                    st.rerun()
+                except Exception as db_err:
+                    st.error(f"Database error: {db_err}")
 
     # PHASE 3: Mid-Challenge Locked State
     else:
@@ -293,9 +305,12 @@ elif page == "Benchmark Workout":
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Benchmark Workout Score Entry</h2>", unsafe_allow_html=True)
     st.info(f"🏋️‍♂️ **Official Workout Designation:** {settings.get('workout_name', 'TBD')}\n\n*Instructions:* {settings.get('workout_notes', 'Performance parameters pending update from coach.')}")
     
-    existing_baseline = supabase.table("user_baselines").select("benchmark_score").eq("user_id", st.session_state.user["id"]).execute()
-    b_row = extract_dict(existing_baseline.data)
-    current_saved_score = b_row.get("benchmark_score", "") if b_row else ""
+    try:
+        existing_baseline = supabase.table("user_baselines").select("benchmark_score").eq("user_id", st.session_state.user["id"]).execute()
+        b_row = extract_dict(existing_baseline.data)
+        current_saved_score = b_row.get("benchmark_score", "") if b_row else ""
+    except Exception:
+        current_saved_score = ""
     
     if current_saved_score:
         st.success(f"Locked Score on Profile: **{current_saved_score}**")
@@ -303,19 +318,25 @@ elif page == "Benchmark Workout":
     with st.form("workout_score_form"):
         score = st.text_input("Enter Your Workout Performance Result", value=current_saved_score, placeholder="e.g., 14:22, 185 lbs, 4 Rounds...")
         if st.form_submit_button("Submit Score Parameters"):
-            supabase.table("user_baselines").upsert({
-                "user_id": st.session_state.user["id"],
-                "benchmark_score": score
-            }).execute()
-            st.success("Performance metrics successfully recorded!")
-            st.rerun()
+            try:
+                supabase.table("user_baselines").upsert({
+                    "user_id": st.session_state.user["id"],
+                    "benchmark_score": score
+                }).execute()
+                st.success("Performance metrics successfully recorded!")
+                st.rerun()
+            except Exception as db_err:
+                st.error(f"Database error: {db_err}")
 
 elif page == "Daily Log":
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Daily Performance Log</h2>", unsafe_allow_html=True)
     log_date = st.date_input("Date", date.today())
     
-    existing = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).eq("log_date", str(log_date)).execute()
-    log_data = extract_dict(existing.data) if existing.data else {"diet": False, "water": False, "sleep": False, "exercise": False}
+    try:
+        existing = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).eq("log_date", str(log_date)).execute()
+        log_data = extract_dict(existing.data) if existing.data else {"diet": False, "water": False, "sleep": False, "exercise": False}
+    except Exception:
+        log_data = {"diet": False, "water": False, "sleep": False, "exercise": False}
     
     diet = st.checkbox("Strict Paleo Menu Adherence — **5 pts**", value=log_data.get("diet", False))
     water = st.checkbox("Water Tracker Placeholder — **1 pt**", value=log_data.get("water", False))
@@ -326,17 +347,17 @@ elif page == "Daily Log":
     st.metric("Points Scored", f"{score} / 8")
     
     if st.button("Submit Daily Points"):
-        supabase.table("daily_logs").upsert({
-            "user_id": st.session_state.user["id"], "log_date": str(log_date),
-            "diet": diet, "water": water, "sleep": sleep, "exercise": exercise, "daily_score": score
-        }).execute()
-        st.success("Points posted successfully!")
+        try:
+            supabase.table("daily_logs").upsert({
+                "user_id": st.session_state.user["id"], "log_date": str(log_date),
+                "diet": diet, "water": water, "sleep": sleep, "exercise": exercise, "daily_score": score
+            }).execute()
+            st.success("Points posted successfully!")
+        except Exception as db_err:
+            st.error(f"Database error: {db_err}")
 
 elif page == "Dashboard":
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Your Progress Dashboard</h2>", unsafe_allow_html=True)
-    
-    baselines = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
-    logs = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).execute()
     
     if not has_baseline:
         st.markdown("<br>", unsafe_allow_html=True)
@@ -345,7 +366,15 @@ elif page == "Dashboard":
             st.session_state.nav_page = "Challenge Measurements"
             st.rerun()
     else:
-        b = extract_dict(baselines.data)
+        try:
+            baselines = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
+            logs = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).execute()
+            b = extract_dict(baselines.data)
+            logs_list = logs.data if logs.data else []
+        except Exception:
+            b = {}
+            logs_list = []
+            
         start_dt = challenge_start_date
         try:
             total_weeks = int(settings.get("challenge_duration_weeks", 6))
@@ -354,7 +383,7 @@ elif page == "Dashboard":
         total_days = total_weeks * 7
         days_in = max((date.today() - start_dt).days + 1, 1)
         
-        total_earned = sum([day.get("daily_score", 0) for day in logs.data if isinstance(day, dict)])
+        total_earned = sum([day.get("daily_score", 0) for day in logs_list if isinstance(day, dict)])
         possible_so_far = min(days_in, total_days) * 8
         success_rate = (total_earned / possible_so_far * 100) if possible_so_far > 0 else 100.0
         
@@ -362,86 +391,55 @@ elif page == "Dashboard":
         c1, c2, c3 = st.columns(3)
         
         with c1:
-            st.markdown(f"""
-            <div style="background-color: #1E222B; padding: 20px; border-radius: 12px; border-left: 5px solid #FF4B4B; box-shadow: 2px 2px 10px rgba(0,0,0,0.3);">
-                <span style="color: #8A9AAB; font-size: 12px; font-weight: bold; text-transform: uppercase;">Timeline Milestone</span>
-                <h2 style="margin: 5px 0 0 0; color: #FAFAFA; font-size: 28px;">Day {min(days_in, total_days)} <span style="font-size: 16px; color: #8A9AAB;">/ {total_days}</span></h2>
-            </div>
-            """, unsafe_allow_html=True)
-            
+            st.metric(label="Timeline Milestone", value=f"Day {min(days_in, total_days)}", delta=f"out of {total_days} total days")
         with c2:
-            st.markdown(f"""
-            <div style="background-color: #1E222B; padding: 20px; border-radius: 12px; border-left: 5px solid #00E676; box-shadow: 2px 2px 10px rgba(0,0,0,0.3);">
-                <span style="color: #8A9AAB; font-size: 12px; font-weight: bold; text-transform: uppercase;">Accumulated Points</span>
-                <h2 style="margin: 5px 0 0 0; color: #00E676; font-size: 28px;">{total_earned} <span style="font-size: 16px; color: #8A9AAB;">Pts</span></h2>
-            </div>
-            """, unsafe_allow_html=True)
-            
+            st.metric(label="Accumulated Points", value=f"{total_earned} Pts", delta="earned so far")
         with c3:
-            badge_color = "#FF4B4B" if success_rate < 60 else ("#FFD600" if success_rate < 75 else "#00E676")
-            st.markdown(f"""
-            <div style="background-color: #1E222B; padding: 20px; border-radius: 12px; border-left: 5px solid {badge_color}; box-shadow: 2px 2px 10px rgba(0,0,0,0.3);">
-                <span style="color: #8A9AAB; font-size: 12px; font-weight: bold; text-transform: uppercase;">Your Success Rate</span>
-                <h4 style="margin: 8px 0 0 0; color: #FAFAFA; font-size: 18px;">{get_success_badge(success_rate)}</h4>
-            </div>
-            """, unsafe_allow_html=True)
+            st.metric(label="Your Success Rate", value=f"{success_rate:.1f}%", delta=get_success_badge(success_rate))
         
-        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("---")
         
-        st.markdown(f"""
-        <div style="background-color: #151922; padding: 25px; border-radius: 16px; border: 1px solid #2C3545; box-shadow: 2px 4px 15px rgba(0,0,0,0.4); margin-top: 15px;">
-            <div style="display: flex; align-items: center; margin-bottom: 15px;">
-                <h3 style="margin: 0; color: #FAFAFA; font-size: 20px;">🔒 Sealed Personal Configuration (Private)</h3>
-            </div>
-            <p style="color: #8A9AAB; font-size: 13px; margin: -5px 0 20px 0;">These numbers are safely encrypted. No other members or leaderboards can view these metrics.</p>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
-                <div style="background-color: #1E222B; padding: 15px; border-radius: 8px;">
-                    <span style="color: #8A9AAB; font-size: 11px; text-transform: uppercase; font-weight: bold;">Starting Weight</span>
-                    <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: #FAFAFA;">{b.get('start_weight', 0.0)} lbs</p>
-                </div>
-                <div style="background-color: #1E222B; padding: 15px; border-radius: 8px;">
-                    <span style="color: #8A9AAB; font-size: 11px; text-transform: uppercase; font-weight: bold;">Chest / Waist / Hips</span>
-                    <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #FAFAFA;">{float_to_fraction(b.get('start_chest', 0.0))} / {float_to_fraction(b.get('start_waist', 0.0))} / {float_to_fraction(b.get('start_hips', 0.0))}</p>
-                </div>
-                <div style="background-color: #1E222B; padding: 15px; border-radius: 8px;">
-                    <span style="color: #8A9AAB; font-size: 11px; text-transform: uppercase; font-weight: bold;">Arms (L / R)</span>
-                    <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: #FAFAFA;">{float_to_fraction(b.get('start_left_arm', 0.0))} / {float_to_fraction(b.get('start_right_arm', 0.0))}</p>
-                </div>
-                <div style="background-color: #1E222B; padding: 15px; border-radius: 8px;">
-                    <span style="color: #8A9AAB; font-size: 11px; text-transform: uppercase; font-weight: bold;">Thighs (L / R)</span>
-                    <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: #FAFAFA;">{float_to_fraction(b.get('start_left_thigh', 0.0))} / {float_to_fraction(b.get('start_right_thigh', 0.0))}</p>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("### 🔒 Sealed Personal Configuration (Private)")
+        st.caption("These numbers are safely encrypted. No other members or leaderboards can view these metrics.")
+        
+        dc1, dc2, dc3, dc4 = st.columns(4)
+        with dc1:
+            st.info(f"**Starting Weight**\n\n### {b.get('start_weight', 0.0)} lbs")
+        with dc2:
+            st.info(f"**Chest / Waist / Hips**\n\n### {float_to_fraction(b.get('start_chest', 0.0))} / {float_to_fraction(b.get('start_waist', 0.0))} / {float_to_fraction(b.get('start_hips', 0.0))}")
+        with dc3:
+            st.info(f"**Arms (L / R)**\n\n### {float_to_fraction(b.get('start_left_arm', 0.0))} / {float_to_fraction(b.get('start_right_arm', 0.0))}")
+        with dc4:
+            st.info(f"**Thighs (L / R)**\n\n### {float_to_fraction(b.get('start_left_thigh', 0.0))} / {float_to_fraction(b.get('start_right_thigh', 0.0))}")
 
 elif page == "Leaderboard":
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>The Consolidated Gym Standings</h2>", unsafe_allow_html=True)
     
-    profiles = supabase.table("user_profiles").select("*").execute()
-    all_logs = supabase.table("daily_logs").select("*").execute()
-    all_baselines = supabase.table("user_baselines").select("*").execute()
-    
-    leaderboard_data = []
-    
-    for p in profiles.data:
-        user_points = sum([l.get("daily_score", 0) for l in all_logs.data if isinstance(l, dict) and l.get("user_id") == p.get("user_id")])
-        ub = next((b for b in all_baselines.data if isinstance(b, dict) and b.get("user_id") == p.get("user_id")), None)
+    try:
+        profiles = supabase.table("user_profiles").select("*").execute()
+        all_logs = supabase.table("daily_logs").select("*").execute()
+        all_baselines = supabase.table("user_baselines").select("*").execute()
         
-        lbs_lost = 0.0
-        if ub and ub.get("end_weight") and ub.get("start_weight"):
-            lbs_lost = float(ub["start_weight"] - ub["end_weight"])
-        
-        leaderboard_data.append({
-            "Athlete Name": p.get("full_name", "Anonymous"),
-            "Division": p.get("gender", "Unassigned"),
-            "Total Points": user_points,
-            "Pounds Dropped": f"{lbs_lost:.1f} lbs" if lbs_lost > 0 else "0.0 lbs",
-        })
-        
-    df = pd.DataFrame(leaderboard_data).sort_values(by="Total Points", ascending=False)
-    st.dataframe(df, use_container_width=True)
+        leaderboard_data = []
+        for p in profiles.data:
+            user_points = sum([l.get("daily_score", 0) for l in all_logs.data if isinstance(l, dict) and l.get("user_id") == p.get("user_id")])
+            ub = next((b for b in all_baselines.data if isinstance(b, dict) and b.get("user_id") == p.get("user_id")), None)
+            
+            lbs_lost = 0.0
+            if ub and ub.get("end_weight") and ub.get("start_weight"):
+                lbs_lost = float(ub["start_weight"] - ub["end_weight"])
+            
+            leaderboard_data.append({
+                "Athlete Name": p.get("full_name", "Anonymous"),
+                "Division": p.get("gender", "Unassigned"),
+                "Total Points": user_points,
+                "Pounds Dropped": f"{lbs_lost:.1f} lbs" if lbs_lost > 0 else "0.0 lbs",
+            })
+            
+        df = pd.DataFrame(leaderboard_data).sort_values(by="Total Points", ascending=False)
+        st.dataframe(df, use_container_width=True)
+    except Exception as e:
+        st.error(f"Could not load leaderboard stats: {e}")
 
 elif page == "Admin Configuration Panel":
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Shared Executive Administration Panel</h2>", unsafe_allow_html=True)
@@ -464,13 +462,16 @@ elif page == "Admin Configuration Panel":
             new_notes = st.text_area("Scoring Rules & Instructions Box", value=settings.get("workout_notes", ""))
             
             if st.form_submit_button("Apply Global System Overrides"):
-                supabase.table("challenge_settings").upsert({
-                    "id": 1, 
-                    "admin_secret_key": master_key,
-                    "challenge_duration_weeks": new_dur, 
-                    "global_start_date": str(new_start),
-                    "workout_name": new_wkout, 
-                    "workout_notes": new_notes
-                }).execute()
-                st.success("Global overrides applied! Refreshing pipeline.")
-                st.rerun()
+                try:
+                    supabase.table("challenge_settings").upsert({
+                        "id": 1, 
+                        "admin_secret_key": master_key,
+                        "challenge_duration_weeks": new_dur, 
+                        "global_start_date": str(new_start),
+                        "workout_name": new_wkout, 
+                        "workout_notes": new_notes
+                    }).execute()
+                    st.success("Global overrides applied! Refreshing pipeline.")
+                    st.rerun()
+                except Exception as db_err:
+                    st.error(f"Database error: {db_err}")
