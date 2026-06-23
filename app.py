@@ -58,8 +58,7 @@ try:
 except Exception as e:
     settings = DEFAULT_SETTINGS
 
-# Completely safeguard the challenge launch date evaluation
-challenge_start_date = date(2026, 6, 22) # Default system fallback
+challenge_start_date = date(2026, 6, 22)
 raw_start_date = settings.get("global_start_date", "2026-06-22")
 
 if isinstance(raw_start_date, str):
@@ -74,7 +73,11 @@ elif hasattr(raw_start_date, "year"):
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# --- SIDEBAR NAVIGATION WITH ONBOARDING FUNNEL ---
+# Initialize native internal navigation state tracking
+if "nav_page" not in st.session_state:
+    st.session_state.nav_page = "Dashboard"
+
+# --- SIDEBAR NAVIGATION WITH SECURE PRIVILEGE GATES ---
 st.sidebar.markdown("### CHALLENGE MENU")
 
 has_baseline = False
@@ -82,8 +85,7 @@ if st.session_state.user:
     st.sidebar.write(f"Logged in: **{st.session_state.user['email']}**")
     if st.sidebar.button("Log Out"):
         st.session_state.user = None
-        if "nav_page" in st.session_state:
-            del st.session_state.nav_page
+        st.session_state.nav_page = "Dashboard"
         st.rerun()
     
     # Check baseline status to dynamically adjust the user funnel
@@ -93,29 +95,21 @@ if st.session_state.user:
 # Secretly check URL for coach access parameter (?role=coach)
 is_coach = st.query_params.get("role") == "coach"
 
-# Enforce setup focus: Hide advanced tabs until initial measurements are captured
-if st.session_state.user and not has_baseline:
+# SECURE GATING MAPPING: Dictate exactly who can see what menus
+if not st.session_state.user:
+    # Guests see nothing until authenticated
+    navigation_options = ["Dashboard"]
+elif not has_baseline:
+    # Onboarding flow focuses strictly on initial metrics
     navigation_options = ["Dashboard", "Challenge Measurements"]
 else:
+    # Fully set up users unlock operational app modules
     navigation_options = ["Dashboard", "Daily Log", "Challenge Measurements", "Leaderboard"]
 
 if is_coach:
     navigation_options.append("Admin Configuration Panel")
 
-# --- INTERCEPT PROGRAMMATIC HYPERLINK ROUTING ---
-if "page" in st.query_params:
-    requested_page = st.query_params["page"]
-    if requested_page in navigation_options:
-        st.session_state.nav_page = requested_page
-    
-    st.query_params.clear()
-    if is_coach:
-        st.query_params["role"] = "coach"
-    st.rerun()
-
-if "nav_page" not in st.session_state:
-    st.session_state.nav_page = "Dashboard"
-
+# Re-verify page index mapping safely against calculated rights matrix
 try:
     default_selection_index = navigation_options.index(st.session_state.nav_page)
 except ValueError:
@@ -226,6 +220,7 @@ if page == "Challenge Measurements":
                     "benchmark_score": score, "before_photo": img_str
                 }).execute()
                 st.success("Starting metrics successfully saved to your private profile vault!")
+                st.session_state.nav_page = "Dashboard"
                 st.rerun()
 
     # PHASE 2: Final Transformation Window (Final Week up to 7 Days Post-Challenge)
@@ -252,6 +247,7 @@ if page == "Challenge Measurements":
                     "end_left_arm": la_end, "end_right_arm": ra_end, "end_left_thigh": lt_end, "end_right_thigh": rt_end
                 }).execute()
                 st.success("Finishing numbers locked in! Congratulations on completing the challenge!")
+                st.session_state.nav_page = "Dashboard"
                 st.rerun()
 
     # PHASE 3: Mid-Challenge Locked State
@@ -295,14 +291,12 @@ elif page == "Dashboard":
     logs = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).execute()
     
     if not has_baseline:
-        st.markdown("""
-        <div style="background-color: #1E222B; padding: 22px; border-radius: 12px; border-left: 5px solid #FF4B4B; box-shadow: 2px 2px 12px rgba(0,0,0,0.4); margin-bottom: 25px;">
-            <span style="color: #FAFAFA; font-size: 15px; font-weight: 500; letter-spacing: 0.3px;">
-                👉 Enter your 'starting' measurements to get set up for the Challenge! 
-                <a href="?page=Challenge+Measurements" target="_self" style="color: #FF4B4B; font-weight: bold; text-decoration: underline; margin-left: 6px; transition: color 0.2s;">Click here to lock them in →</a>
-            </span>
-        </div>
-        """, unsafe_allow_html=True)
+        # --- NATIVE IN-MEMORY BUTTON ACTION (DUMMY PROOF) ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.warning("👉 Enter your 'starting' measurements to get set up for the Challenge!")
+        if st.button("Go Lock In Your Measurements Now →", type="primary"):
+            st.session_state.nav_page = "Challenge Measurements"
+            st.rerun()
     else:
         b = baselines.data
         start_dt = challenge_start_date
