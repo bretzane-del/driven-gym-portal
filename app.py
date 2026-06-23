@@ -6,6 +6,12 @@ from PIL import Image
 import io
 import base64
 
+# --- CRITICAL: MUST BE THE ABSOLUTE FIRST STREAMLIT COMMAND ---
+st.set_page_config(page_title="Driven Gym Portal", page_icon="💪", layout="wide")
+
+# --- LIVE DIAGNOSTIC PIPELINE ---
+st.write("✨ *System Status: Initializing core app engines...*")
+
 # --- SECURE DATABASE CONNECTION ---
 @st.cache_resource
 def init_supabase() -> Client:
@@ -13,13 +19,12 @@ def init_supabase() -> Client:
     key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
+st.write("⚡ *System Status: Establishing connection to secure cloud vault...*")
 try:
     supabase = init_supabase()
 except Exception as e:
     st.error("🔒 Cloud Vault Connection Pending. Please configure your Streamlit Secrets.")
     st.stop()
-
-st.set_page_config(page_title="Driven Gym Portal", page_icon="💪", layout="wide")
 
 # --- DATA UNPACKING & CONVERSION HELPERS ---
 FRACTIONS = ["0", "1/16", "1/8", "3/16", "1/4", "5/16", "3/8", "7/16", "1/2", "9/16", "5/8", "11/16", "3/4", "13/16", "7/8", "15/16"]
@@ -61,6 +66,7 @@ def get_success_badge(rate):
     return f"{rate:.1f}% — Danger Zone 🛑"
 
 # --- DEFENSIVE SYSTEM SETTINGS LOAD ---
+st.write("📡 *System Status: Fetching global challenge launch configurations...*")
 DEFAULT_SETTINGS = {
     "admin_secret_key": "driven2026", 
     "challenge_duration_weeks": 6, 
@@ -105,6 +111,7 @@ if st.session_state.user:
         st.rerun()
     
     # Strict Verification: Only unlock advanced modules if starting weight exists
+    st.write("🔐 *System Status: Validating user onboarding credentials...*")
     try:
         baseline_check = supabase.table("user_baselines").select("start_weight").eq("user_id", st.session_state.user["id"]).execute()
         b_check_row = extract_dict(baseline_check.data)
@@ -136,6 +143,8 @@ st.session_state.nav_page = page
 
 # --- SIGN UP & LOGIN INTERFACE ---
 if not st.session_state.user and page != "Admin Configuration Panel":
+    # Clean up diagnostic text immediately once we confirm we reached the login screen safely
+    st.empty() 
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Driven Community Fitness Challenge</h2>", unsafe_allow_html=True)
     auth_mode = st.radio("Choose Action", ["Login", "Register Account"])
     
@@ -181,10 +190,10 @@ def fraction_selector(label, unique_key, current_val=0.0):
     default_inch, default_frac_idx = get_inch_and_frac_index(current_val)
     
     c1, c2, c3 = st.columns()
-    inch_opts = list(range(0, 80))
-    def_inch_idx = inch_opts.index(default_inch) if default_inch in inch_opts else 0
+    whole_opts = list(range(0, 80))
+    def_inch_idx = whole_opts.index(default_inch) if default_inch in whole_opts else 0
     
-    whole = c1.selectbox("Inches", inch_opts, index=def_inch_idx, key=f"{unique_key}_w")
+    whole = c1.selectbox("Inches", whole_opts, index=def_inch_idx, key=f"{unique_key}_w")
     frac = c2.selectbox("Fraction", FRACTIONS, index=default_frac_idx, key=f"{unique_key}_f")
     return whole + FRACTION_VALUES[frac]
 
