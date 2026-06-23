@@ -97,19 +97,15 @@ is_coach = st.query_params.get("role") == "coach"
 
 # SECURE GATING MAPPING: Dictate exactly who can see what menus
 if not st.session_state.user:
-    # Guests see nothing until authenticated
     navigation_options = ["Dashboard"]
 elif not has_baseline:
-    # Onboarding flow focuses strictly on initial metrics
     navigation_options = ["Dashboard", "Challenge Measurements"]
 else:
-    # Fully set up users unlock operational app modules
     navigation_options = ["Dashboard", "Daily Log", "Challenge Measurements", "Leaderboard"]
 
 if is_coach:
     navigation_options.append("Admin Configuration Panel")
 
-# Re-verify page index mapping safely against calculated rights matrix
 try:
     default_selection_index = navigation_options.index(st.session_state.nav_page)
 except ValueError:
@@ -201,12 +197,17 @@ if page == "Challenge Measurements":
             lt = fraction_selector("Left Thigh", "start_chest_thigh_l")
             rt = fraction_selector("Right Thigh", "start_chest_thigh_r")
             
+            # --- GATED PHOTO MODULE (UX PROTECTION UPDATE) ---
             st.subheader("Private Profile Photo (Optional)")
-            cam_photo = st.camera_input("Snap Baseline Selfie")
+            opt_in_camera = st.checkbox("I want to take a starting baseline selfie photo")
+            
+            cam_photo = None
+            if opt_in_camera:
+                cam_photo = st.camera_input("Snap Baseline Selfie")
             
             if st.form_submit_button("Securely Save My Starting Numbers"):
                 img_str = ""
-                if cam_photo:
+                if opt_in_camera and cam_photo:
                     img = Image.open(cam_photo)
                     img.thumbnail((400, 400))
                     buffered = io.BytesIO()
@@ -291,7 +292,6 @@ elif page == "Dashboard":
     logs = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).execute()
     
     if not has_baseline:
-        # --- NATIVE IN-MEMORY BUTTON ACTION (DUMMY PROOF) ---
         st.markdown("<br>", unsafe_allow_html=True)
         st.warning("👉 Enter your 'starting' measurements to get set up for the Challenge!")
         if st.button("Go Lock In Your Measurements Now →", type="primary"):
