@@ -101,7 +101,8 @@ if not st.session_state.user:
 elif not has_baseline:
     navigation_options = ["Dashboard", "Challenge Measurements"]
 else:
-    navigation_options = ["Dashboard", "Daily Log", "Challenge Measurements", "Leaderboard"]
+    # Standalone Workout tab unlocks alongside operational modules after tape inputs are logged
+    navigation_options = ["Dashboard", "Daily Log", "Benchmark Workout", "Challenge Measurements", "Leaderboard"]
 
 if is_coach:
     navigation_options.append("Admin Configuration Panel")
@@ -156,10 +157,11 @@ if not st.session_state.user and page != "Admin Configuration Panel":
                 st.error("Invalid login credentials.")
     st.stop()
 
-# --- CUSTOM TWO-PART FRACTION INPUT COMPONENT ---
+# --- HIGH-COMPACT ADAPTIVE DROP-DOWN GRID SELECTOR ---
 def fraction_selector(label, unique_key):
-    st.markdown(f"**{label}**")
-    c1, c2 = st.columns(2)
+    st.markdown(f"<div style='margin-top: 12px; font-weight: 600; color: #FAFAFA;'>{label}</div>", unsafe_allow_html=True)
+    # Ratios allocate tight boxes on the left, pushing empty grid columns to the right
+    c1, c2, c3 = st.columns([1.5, 1.5, 5])
     whole = c1.selectbox("Inches", list(range(0, 80)), index=0, key=f"{unique_key}_w")
     frac = c2.selectbox("Fraction", FRACTIONS, index=0, key=f"{unique_key}_f")
     return whole + FRACTION_VALUES[frac]
@@ -177,27 +179,29 @@ if page == "Challenge Measurements":
     end_dt = start_dt + timedelta(days=total_challenge_days)
     
     days_since_start = (date.today() - start_dt).days
-    
     existing_baseline = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
     
     # PHASE 1: Initial Baseline Window (First 7 Days)
     if days_since_start <= 7:
-        st.markdown("### Step 1: Lock In Your Starting Baselines")
-        st.info(f"🏋️‍♂️ **Official Benchmark Workout:** {settings.get('workout_name', 'TBD')}\n\n*Instructions:* {settings.get('workout_notes', '')}")
+        st.markdown("### Step 1: Enter Your Starting Measurements")
         
         with st.form("baseline_form"):
-            score = st.text_input("Enter Your Benchmark Workout Score")
-            st.subheader("Starting Tape Measurements")
-            w = st.number_input("Starting Weight (lbs)", min_value=0.0, step=0.1)
-            ch = fraction_selector("Chest", "start_chest")
-            wa = fraction_selector("Waist", "start_waist")
-            hi = fraction_selector("Hips", "start_hips")
-            la = fraction_selector("Left Arm", "start_chest_arm_l")
-            ra = fraction_selector("Right Arm", "start_chest_arm_r")
-            lt = fraction_selector("Left Thigh", "start_chest_thigh_l")
-            rt = fraction_selector("Right Thigh", "start_chest_thigh_r")
+            st.markdown("#### Total Body Mass")
+            # Setting value=None leaves the box blank with an adaptive placeholder string
+            w = st.number_input("Starting Weight (lbs)", min_value=0.0, step=0.1, value=None, placeholder="Enter weight...")
             
-            # --- GATED PHOTO MODULE (UX PROTECTION UPDATE) ---
+            st.markdown("<hr style='margin: 20px 0;'>", unsafe_allow_html=True)
+            st.markdown("#### Anthropometric Tape Configurations")
+            
+            ch = fraction_selector("Chest Tracking circumference", "start_chest")
+            wa = fraction_selector("Waist Tracking circumference", "start_waist")
+            hi = fraction_selector("Hips Tracking circumference", "start_hips")
+            la = fraction_selector("Left Arm circumference", "start_chest_arm_l")
+            ra = fraction_selector("Right Arm circumference", "start_chest_arm_r")
+            lt = fraction_selector("Left Thigh circumference", "start_chest_thigh_l")
+            rt = fraction_selector("Right Thigh circumference", "start_chest_thigh_r")
+            
+            st.markdown("<hr style='margin: 25px 0;'>", unsafe_allow_html=True)
             st.subheader("Private Profile Photo (Optional)")
             opt_in_camera = st.checkbox("I want to take a starting baseline selfie photo")
             
@@ -206,23 +210,26 @@ if page == "Challenge Measurements":
                 cam_photo = st.camera_input("Snap Baseline Selfie")
             
             if st.form_submit_button("Securely Save My Starting Numbers"):
-                img_str = ""
-                if opt_in_camera and cam_photo:
-                    img = Image.open(cam_photo)
-                    img.thumbnail((400, 400))
-                    buffered = io.BytesIO()
-                    img.save(buffered, format="JPEG", quality=75)
-                    img_str = base64.b64encode(buffered.getvalue()).decode()
-                
-                supabase.table("user_baselines").upsert({
-                    "user_id": st.session_state.user["id"],
-                    "start_weight": w, "start_chest": ch, "start_waist": wa, "start_hips": hi,
-                    "start_left_arm": la, "start_right_arm": ra, "start_left_thigh": lt, "start_right_thigh": rt,
-                    "benchmark_score": score, "before_photo": img_str
-                }).execute()
-                st.success("Starting metrics successfully saved to your private profile vault!")
-                st.session_state.nav_page = "Dashboard"
-                st.rerun()
+                if w is None:
+                    st.error("Starting weight entry is required to initialize your dashboard metrics.")
+                else:
+                    img_str = ""
+                    if opt_in_camera and cam_photo:
+                        img = Image.open(cam_photo)
+                        img.thumbnail((400, 400))
+                        buffered = io.BytesIO()
+                        img.save(buffered, format="JPEG", quality=75)
+                        img_str = base64.b64encode(buffered.getvalue()).decode()
+                    
+                    supabase.table("user_baselines").upsert({
+                        "user_id": st.session_state.user["id"],
+                        "start_weight": w, "start_chest": ch, "start_waist": wa, "start_hips": hi,
+                        "start_left_arm": la, "start_right_arm": ra, "start_left_thigh": lt, "start_right_thigh": rt,
+                        "before_photo": img_str
+                    }).execute()
+                    st.success("Starting metrics successfully saved to your private profile vault!")
+                    st.session_state.nav_page = "Dashboard"
+                    st.rerun()
 
     # PHASE 2: Final Transformation Window (Final Week up to 7 Days Post-Challenge)
     elif days_since_start >= (total_challenge_days - 7) and days_since_start <= (total_challenge_days + 7):
@@ -232,7 +239,7 @@ if page == "Challenge Measurements":
             
         with st.form("final_form"):
             st.subheader("Finishing Tape Measurements")
-            w_end = st.number_input("Ending Weight (lbs)", min_value=0.0, step=0.1)
+            w_end = st.number_input("Ending Weight (lbs)", min_value=0.0, step=0.1, value=None, placeholder="Enter weight...")
             ch_end = fraction_selector("Ending Chest", "end_chest")
             wa_end = fraction_selector("Ending Waist", "end_waist")
             hi_end = fraction_selector("Ending Hips", "end_hips")
@@ -261,7 +268,26 @@ if page == "Challenge Measurements":
             b_data = existing_baseline.data
             st.markdown("#### Your Saved Starting Stats:")
             st.write(f"**Starting Weight:** {b_data.get('start_weight', 0.0)} lbs")
-            st.write(f"**Benchmark Score:** {b_data.get('benchmark_score', 'N/A')}")
+
+elif page == "Benchmark Workout":
+    st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Benchmark Workout Score Entry</h2>", unsafe_allow_html=True)
+    st.info(f"🏋️‍♂️ **Official Workout Designation:** {settings.get('workout_name', 'TBD')}\n\n*Instructions:* {settings.get('workout_notes', 'Performance parameters pending update from coach.')}")
+    
+    existing_baseline = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
+    current_saved_score = existing_baseline.data.get("benchmark_score", "") if existing_baseline.data else ""
+    
+    if current_saved_score:
+        st.success(f"Locked Score on Profile: **{current_saved_score}**")
+        
+    with st.form("workout_score_form"):
+        score = st.text_input("Enter Your Workout Performance Result", value=current_saved_score, placeholder="e.g., 14:22, 185 lbs, 4 Rounds...")
+        if st.form_submit_button("Submit Score Parameters"):
+            supabase.table("user_baselines").upsert({
+                "user_id": st.session_state.user["id"],
+                "benchmark_score": score
+            }).execute()
+            st.success("Performance matrix securely attached to your athlete challenge vault!")
+            st.rerun()
 
 elif page == "Daily Log":
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Daily Performance Log</h2>", unsafe_allow_html=True)
