@@ -48,9 +48,9 @@ if "user" not in st.session_state:
     st.session_state.user = None
 
 # --- SIDEBAR NAVIGATION & AUTH LINK ---
-st.sidebar.title("🏁 Navigation")
+st.sidebar.markdown("### PILOT COMMAND")
 if st.session_state.user:
-    st.sidebar.write(f"Logged in as: **{st.session_state.user['email']}**")
+    st.sidebar.write(f"Logged in: **{st.session_state.user['email']}**")
     if st.sidebar.button("Log Out"):
         st.session_state.user = None
         st.rerun()
@@ -59,7 +59,7 @@ page = st.sidebar.radio("Go To", ["Dashboard", "Daily Logger", "Initial Setup & 
 
 # --- SIGN UP & LOGIN INTERFACE ---
 if not st.session_state.user and page != "Hidden Admin Panel":
-    st.header("💪 Driven Community Fitness Challenge")
+    st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Driven Community Fitness Challenge</h2>", unsafe_allow_html=True)
     auth_mode = st.radio("Choose Action", ["Login", "Register Account"])
     
     email = st.text_input("Email")
@@ -74,7 +74,6 @@ if not st.session_state.user and page != "Hidden Admin Panel":
             try:
                 res = supabase.auth.sign_up({"email": email, "password": password})
                 if res.user:
-                    # Save profile details including the new gender selection
                     supabase.table("user_profiles").insert({
                         "user_id": res.user.id, 
                         "full_name": fullname, 
@@ -83,7 +82,6 @@ if not st.session_state.user and page != "Hidden Admin Panel":
                         "gender": gender
                     }).execute()
                     
-                    # AUTO-LOGIN ARCHITECTURE: Instantly log them in 
                     st.session_state.user = {"id": res.user.id, "email": res.user.email}
                     st.success("Welcome aboard! Initializing your dashboard...")
                     st.rerun()
@@ -110,19 +108,19 @@ def fraction_selector(label):
 
 # --- PAGES CONTENT IMPLEMENTATION ---
 if page == "Initial Setup & Baselines":
-    st.header("🏁 Lock In Your Baselines")
+    st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Lock In Your Baselines</h2>", unsafe_allow_html=True)
     start_dt = datetime.strptime(settings["global_start_date"], "%Y-%m-%d").date()
     days_since_start = (date.today() - start_dt).days
     
     if days_since_start > 7:
-        st.error(f"🛑 Entry Window Closed. Baselines had to be locked in within the first week of the start date ({start_dt}). Please contact Coach Bret.")
+        st.error(f"Entry Window Closed. Baselines had to be locked in within the first week of the start date ({start_dt}). Please contact Coach Bret.")
     else:
         st.info(f"🏋️‍♂️ **Official Benchmark Workout:** {settings['workout_name']}\n\n*Instructions:* {settings['workout_notes']}")
         
         with st.form("baseline_form"):
             score = st.text_input("Enter Your Benchmark Workout Score")
             
-            st.subheader("Tape Measurements")
+            st.markdown("### Tape Measurements")
             w = st.number_input("Weight (lbs)", min_value=0.0, step=0.1)
             ch = fraction_selector("Chest")
             wa = fraction_selector("Waist")
@@ -132,7 +130,7 @@ if page == "Initial Setup & Baselines":
             lt = fraction_selector("Left Thigh")
             rt = fraction_selector("Right Thigh")
             
-            st.subheader("Private Before Photo (Optional)")
+            st.markdown("### Private Before Photo (Optional)")
             cam_photo = st.camera_input("Snap Baseline Selfie")
             
             if st.form_submit_button("Securely Save My Starting Numbers"):
@@ -153,14 +151,14 @@ if page == "Initial Setup & Baselines":
                 st.success("Baselines successfully encrypted and saved to your private profile vault!")
 
 elif page == "Daily Logger":
-    st.header("📝 Daily Performance Log")
+    st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Daily Performance Log</h2>", unsafe_allow_html=True)
     log_date = st.date_input("Date", date.today())
     
     existing = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).eq("log_date", str(log_date)).execute()
     log_data = existing.data if existing.data else {"diet": False, "water": False, "sleep": False, "exercise": False}
     
     diet = st.checkbox("Strict Paleo Menu Adherence — **5 pts**", value=log_data["diet"])
-    water = st.checkbox("Water Tracker Placeholder (Awaiting target confirmation from Coach Bret) — **1 pt**", value=log_data["water"])
+    water = st.checkbox("Water Tracker Placeholder — **1 pt**", value=log_data["water"])
     sleep = st.checkbox("Sleep Metrics (7-8+ Rest Hours) — **1 pt**", value=log_data["sleep"])
     exercise = st.checkbox("Daily Activity or Designated Mobility Session — **1 pt**", value=log_data["exercise"])
     
@@ -175,14 +173,14 @@ elif page == "Daily Logger":
         st.success("Points posted successfully!")
 
 elif page == "Dashboard":
-    st.header("📊 Athlete Recovery & Score Command")
+    st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Athlete Recovery & Score Command</h2>", unsafe_allow_html=True)
     
     profile = supabase.table("user_profiles").select("*").eq("user_id", st.session_state.user["id"]).execute()
     baselines = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
     logs = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).execute()
     
     if not baselines.data:
-        st.warning("👋 Set up your profile metrics inside 'Initial Setup & Baselines' to initialize your pipeline.")
+        st.warning("Set up your profile metrics inside 'Initial Setup & Baselines' to initialize your dashboard pipeline.")
     else:
         b = baselines.data
         start_dt = datetime.strptime(settings["global_start_date"], "%Y-%m-%d").date()
@@ -193,7 +191,6 @@ elif page == "Dashboard":
         possible_so_far = min(days_in, total_days) * 8
         success_rate = (total_earned / possible_so_far * 100) if possible_so_far > 0 else 100.0
         
-        # --- 21st CENTURY METRIC CARDS OVERHAUL ---
         st.markdown("### ⚡ Current Momentum")
         c1, c2, c3 = st.columns(3)
         
@@ -225,14 +222,12 @@ elif page == "Dashboard":
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("---")
         
-        # --- PRIVATE MEASUREMENTS VAULT CARD ---
         st.markdown(f"""
         <div style="background-color: #151922; padding: 25px; border-radius: 16px; border: 1px solid #2C3545; box-shadow: 2px 4px 15px rgba(0,0,0,0.4); margin-top: 15px;">
             <div style="display: flex; align-items: center; margin-bottom: 15px;">
-                <span style="font-size: 22px; margin-right: 10px;">🔒</span>
-                <h3 style="margin: 0; color: #FAFAFA; font-size: 20px;">Your Sealed Personal Configuration (Private)</h3>
+                <h3 style="margin: 0; color: #FAFAFA; font-size: 20px;">🔒 Sealed Personal Configuration (Private)</h3>
             </div>
-            <p style="color: #8A9AAB; font-size: 13px; margin: -5px 0 20px 0;">These numbers are safely encrypted. No other members or leaderboards can view these raw metrics.</p>
+            <p style="color: #8A9AAB; font-size: 13px; margin: -5px 0 20px 0;">These numbers are safely encrypted. No other members or leaderboards can view these metrics.</p>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
                 <div style="background-color: #1E222B; padding: 15px; border-radius: 8px;">
                     <span style="color: #8A9AAB; font-size: 11px; text-transform: uppercase; font-weight: bold;">Starting Weight</span>
@@ -255,7 +250,7 @@ elif page == "Dashboard":
         """, unsafe_allow_html=True)
 
 elif page == "Leaderboard":
-    st.header("🏆 The Consolidated Gym Standings")
+    st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>The Consolidated Gym Standings</h2>", unsafe_allow_html=True)
     
     profiles = supabase.table("user_profiles").select("*").execute()
     all_logs = supabase.table("daily_logs").select("*").execute()
@@ -273,6 +268,7 @@ elif page == "Leaderboard":
         
         leaderboard_data.append({
             "Athlete Name": p["full_name"],
+            "Division": p.get("gender", "Unassigned"),
             "Total Points": user_points,
             "Pounds Dropped": f"{lbs_lost:.1f} lbs" if lbs_lost > 0 else "0.0 lbs",
         })
@@ -281,27 +277,32 @@ elif page == "Leaderboard":
     st.dataframe(df, use_container_width=True)
 
 elif page == "Hidden Admin Panel":
-    st.header("⚙️ Shared Executive Administration Panel")
+    st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Shared Executive Administration Panel</h2>", unsafe_allow_html=True)
     input_key = st.text_input("Enter Master Secret Admin Key", type="password")
     
     if input_key == settings["admin_secret_key"]:
         st.success("Access Verified.")
-with st.form("admin_form"):
-            # Using parentheses (...) instead of square brackets to stop the browser glitch
+        with st.form("admin_form"):
             duration_options = (4, 5, 6, 8)
+            try:
+                current_weeks = int(settings["challenge_duration_weeks"])
+                default_selection_index = duration_options.index(current_weeks)
+            except:
+                default_selection_index = 2
             
-            default_selection_index = duration_options.index(settings["challenge_duration_weeks"])
-            
-            new_dur = st.selectbox("Challenge Duration", duration_options, index=default_selection_index)
-            
+            new_dur = st.selectbox("Challenge Duration (Weeks)", duration_options, index=default_selection_index)
             new_start = st.date_input("Global Challenge Launch Date", datetime.strptime(settings["global_start_date"], "%Y-%m-%d").date())
             new_wkout = st.text_input("Global Benchmark Workout Title", value=settings["workout_name"])
             new_notes = st.text_area("Scoring Rules & Instructions Box", value=settings["workout_notes"])
             
             if st.form_submit_button("Apply Global System Overrides"):
                 supabase.table("challenge_settings").upsert({
-                    "id": 1, "admin_secret_key": settings["admin_secret_key"],
-                    "challenge_duration_weeks": new_dur, "global_start_date": str(new_start),
-                    "workout_name": new_wkout, "workout_notes": new_notes
+                    "id": 1, 
+                    "admin_secret_key": settings["admin_secret_key"],
+                    "challenge_duration_weeks": new_dur, 
+                    "global_start_date": str(new_start),
+                    "workout_name": new_wkout, 
+                    "workout_notes": new_notes
                 }).execute()
                 st.success("Global overrides applied! Refreshing pipeline.")
+                st.rerun()
