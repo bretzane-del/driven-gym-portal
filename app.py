@@ -47,19 +47,29 @@ settings = settings_query.data if settings_query.data else {"admin_secret_key": 
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# --- SIDEBAR NAVIGATION WITH HIDDEN COACH ENTRY ---
+# --- SIDEBAR NAVIGATION WITH ONBOARDING FUNNEL ---
 st.sidebar.markdown("### CHALLENGE MENU")
+
+has_baseline = False
 if st.session_state.user:
     st.sidebar.write(f"Logged in: **{st.session_state.user['email']}**")
     if st.sidebar.button("Log Out"):
         st.session_state.user = None
         st.rerun()
+    
+    # Check baseline status to dynamically adjust the user funnel
+    baseline_check = supabase.table("user_baselines").select("user_id").eq("user_id", st.session_state.user["id"]).execute()
+    has_baseline = len(baseline_check.data) > 0
 
 # Secretly check URL for coach access parameter (?role=coach)
 is_coach = st.query_params.get("role") == "coach"
 
-# Build human-friendly menu options dynamically
-navigation_options = ["Dashboard", "Daily Log", "Challenge Measurements", "Leaderboard"]
+# Enforce setup focus: Hide advanced tabs until initial measurements are captured
+if st.session_state.user and not has_baseline:
+    navigation_options = ["Dashboard", "Challenge Measurements"]
+else:
+    navigation_options = ["Dashboard", "Daily Log", "Challenge Measurements", "Leaderboard"]
+
 if is_coach:
     navigation_options.append("Admin Configuration Panel")
 
@@ -124,9 +134,7 @@ if page == "Challenge Measurements":
     
     days_since_start = (date.today() - start_dt).days
     
-    # Check existing data to show status
     existing_baseline = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
-    has_baseline = len(existing_baseline.data) > 0
     
     # PHASE 1: Initial Baseline Window (First 7 Days)
     if days_since_start <= 7:
@@ -229,12 +237,11 @@ elif page == "Daily Log":
 elif page == "Dashboard":
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Your Progress Dashboard</h2>", unsafe_allow_html=True)
     
-    profile = supabase.table("user_profiles").select("*").eq("user_id", st.session_state.user["id"]).execute()
     baselines = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
     logs = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).execute()
     
-    if not baselines.data:
-        st.warning("Set up your profile metrics inside 'Challenge Measurements' to initialize your dashboard pipeline.")
+    if not has_baseline:
+        st.warning("👉 Enter your 'starting' measurements to get set up for the Challenge! Select 'Challenge Measurements' from the menu on the left to begin.")
     else:
         b = baselines.data
         start_dt = datetime.strptime(settings["global_start_date"], "%Y-%m-%d").date()
