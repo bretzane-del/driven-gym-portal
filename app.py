@@ -5,6 +5,7 @@ from supabase import create_client, Client
 from PIL import Image
 import io
 import base64
+import concurrent.futures
 
 # --- CRITICAL: MUST BE THE ABSOLUTE FIRST STREAMLIT COMMAND ---
 st.set_page_config(page_title="Driven Gym Portal", page_icon="💪", layout="wide")
@@ -58,26 +59,27 @@ def get_success_badge(rate):
     if rate >= 60: return f"{rate:.1f}% — Needs Focus ⚠️"
     return f"{rate:.1f}% — Danger Zone 🛑"
 
-# --- CACHED NON-BLOCKING CONFIGURATION ENGINE ---
-@st.cache_data(ttl=60, show_spinner=False)
-def load_challenge_settings():
-    default = {
-        "admin_secret_key": "driven2026", 
-        "challenge_duration_weeks": 6, 
-        "global_start_date": "2026-06-22", 
-        "workout_name": "TBD", 
-        "workout_notes": ""
-    }
-    try:
-        # Simple fetch with built-in cache protection to prevent startup deadlocks
-        query = supabase.table("challenge_settings").select("*").eq("id", 1).execute()
-        if query.data:
-            return extract_dict(query.data)
-        return default
-    except Exception:
-        return default
+# --- ASYNCHRONOUS TIMEBOXED NETWORK ENGINE ---
+DEFAULT_SETTINGS = {
+    "admin_secret_key": "driven2026", 
+    "challenge_duration_weeks": 6, 
+    "global_start_date": "2026-06-22", 
+    "workout_name": "TBD", 
+    "workout_notes": ""
+}
 
-settings = load_challenge_settings()
+def fetch_settings_from_vault():
+    return supabase.table("challenge_settings").select("*").eq("id", 1).execute()
+
+# Force a strict 2.0 second limit on the network loop to kill infinite spinning loops
+with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+    future = executor.submit(fetch_settings_from_vault)
+    try:
+        query_result = future.result(timeout=2.0)
+        settings = extract_dict(query_result.data) if query_result.data else DEFAULT_SETTINGS
+    except Exception:
+        # Silently switch to defaults if database lags or drops connection
+        settings = DEFAULT_SETTINGS
 
 challenge_start_date = date(2026, 6, 22)
 raw_start_date = settings.get("global_start_date", "2026-06-22")
