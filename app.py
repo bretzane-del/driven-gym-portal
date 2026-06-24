@@ -9,9 +9,6 @@ import base64
 # --- CRITICAL: MUST BE THE ABSOLUTE FIRST STREAMLIT COMMAND ---
 st.set_page_config(page_title="Driven Gym Portal", page_icon="💪", layout="wide")
 
-# --- LIVE DIAGNOSTIC PIPELINE ---
-st.write("✨ *System Status: Initializing core app engines...*")
-
 # --- SECURE DATABASE CONNECTION ---
 @st.cache_resource
 def init_supabase() -> Client:
@@ -19,7 +16,6 @@ def init_supabase() -> Client:
     key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
-st.write("⚡ *System Status: Establishing connection to secure cloud vault...*")
 try:
     supabase = init_supabase()
 except Exception as e:
@@ -31,7 +27,6 @@ FRACTIONS = ["0", "1/16", "1/8", "3/16", "1/4", "5/16", "3/8", "7/16", "1/2", "9
 FRACTION_VALUES = {f: i/16 for i, f in enumerate(FRACTIONS)}
 
 def extract_dict(data_source):
-    """Safely extracts a single dictionary out of deeply nested list structures."""
     if not data_source:
         return {}
     current = data_source
@@ -50,7 +45,6 @@ def float_to_fraction(val):
     return f"{whole}\"" if closest_frac == "0" else f"{whole} {closest_frac}\""
 
 def get_inch_and_frac_index(val):
-    """Parses saved decimal floats back into separate whole inches and selectbox indices."""
     if not val:
         return 0, 0
     whole = int(val)
@@ -58,28 +52,32 @@ def get_inch_and_frac_index(val):
     closest_frac = min(FRACTIONS, key=lambda x: abs(FRACTION_VALUES[x] - frac))
     return whole, FRACTIONS.index(closest_frac)
 
-# --- DYNAMIC SUCCESS GRADING SCALE ---
 def get_success_badge(rate):
     if rate >= 90: return f"{rate:.1f}% — On Fire 🔥"
     if rate >= 75: return f"{rate:.1f}% — On Track 🏃‍♂️"
     if rate >= 60: return f"{rate:.1f}% — Needs Focus ⚠️"
     return f"{rate:.1f}% — Danger Zone 🛑"
 
-# --- DEFENSIVE SYSTEM SETTINGS LOAD ---
-st.write("📡 *System Status: Fetching global challenge launch configurations...*")
-DEFAULT_SETTINGS = {
-    "admin_secret_key": "driven2026", 
-    "challenge_duration_weeks": 6, 
-    "global_start_date": "2026-06-22", 
-    "workout_name": "TBD", 
-    "workout_notes": ""
-}
+# --- CACHED NON-BLOCKING CONFIGURATION ENGINE ---
+@st.cache_data(ttl=60, show_spinner=False)
+def load_challenge_settings():
+    default = {
+        "admin_secret_key": "driven2026", 
+        "challenge_duration_weeks": 6, 
+        "global_start_date": "2026-06-22", 
+        "workout_name": "TBD", 
+        "workout_notes": ""
+    }
+    try:
+        # Simple fetch with built-in cache protection to prevent startup deadlocks
+        query = supabase.table("challenge_settings").select("*").eq("id", 1).execute()
+        if query.data:
+            return extract_dict(query.data)
+        return default
+    except Exception:
+        return default
 
-try:
-    settings_query = supabase.table("challenge_settings").select("*").eq("id", 1).execute()
-    settings = extract_dict(settings_query.data) if settings_query.data else DEFAULT_SETTINGS
-except Exception as e:
-    settings = DEFAULT_SETTINGS
+settings = load_challenge_settings()
 
 challenge_start_date = date(2026, 6, 22)
 raw_start_date = settings.get("global_start_date", "2026-06-22")
@@ -110,8 +108,6 @@ if st.session_state.user:
         st.session_state.nav_page = "Dashboard"
         st.rerun()
     
-    # Strict Verification: Only unlock advanced modules if starting weight exists
-    st.write("🔐 *System Status: Validating user onboarding credentials...*")
     try:
         baseline_check = supabase.table("user_baselines").select("start_weight").eq("user_id", st.session_state.user["id"]).execute()
         b_check_row = extract_dict(baseline_check.data)
@@ -143,8 +139,6 @@ st.session_state.nav_page = page
 
 # --- SIGN UP & LOGIN INTERFACE ---
 if not st.session_state.user and page != "Admin Configuration Panel":
-    # Clean up diagnostic text immediately once we confirm we reached the login screen safely
-    st.empty() 
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Driven Community Fitness Challenge</h2>", unsafe_allow_html=True)
     auth_mode = st.radio("Choose Action", ["Login", "Register Account"])
     
@@ -217,7 +211,6 @@ if page == "Challenge Measurements":
     except Exception:
         b_data = {}
     
-    # PHASE 1: Initial Baseline Window (First 7 Days)
     if days_since_start <= 7:
         st.markdown("### Step 1: Enter Your Starting Measurements")
         if has_baseline:
@@ -275,7 +268,6 @@ if page == "Challenge Measurements":
                     except Exception as db_err:
                         st.error(f"Database error: {db_err}")
 
-    # PHASE 2: Final Transformation Window
     elif days_since_start >= (total_challenge_days - 7) and days_since_start <= (total_challenge_days + 7):
         st.markdown("### Step 2: Submit Your Final Transformation Numbers")
         with st.form("final_form"):
@@ -302,7 +294,6 @@ if page == "Challenge Measurements":
                 except Exception as db_err:
                     st.error(f"Database error: {db_err}")
 
-    # PHASE 3: Mid-Challenge Locked State
     else:
         st.markdown("### Measurement Logs Locked")
         st.subheader("🔒 Initial Baselines Secured")
