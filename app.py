@@ -6,51 +6,56 @@ from PIL import Image
 import io
 import base64
 
-# --- CRITICAL: MUST BE THE ABSOLUTE FIRST STREAMLIT COMMAND ---
+# --- 1. CRITICAL PAGE CONFIGURATION ---
 st.set_page_config(page_title="Driven Gym Portal", page_icon="💪", layout="wide")
 
-# --- SECURE DATABASE CONNECTION ---
+# --- 2. SECURE DATABASE CONNECTION ---
 @st.cache_resource
 def init_supabase() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
 try:
     supabase = init_supabase()
-except Exception as e:
-    st.error("🔒 Cloud Vault Connection Pending. Please configure your Streamlit Secrets.")
+except Exception:
+    st.error("🔒 Cloud Vault Connection Pending. Please configure your Streamlit Secrets in the app settings.")
     st.stop()
 
-# --- DATA UNPACKING & CONVERSION HELPERS ---
+# --- 3. SAFE DATA CONVERSION HELPERS (NO LOOPS) ---
 FRACTIONS = ["0", "1/16", "1/8", "3/16", "1/4", "5/16", "3/8", "7/16", "1/2", "9/16", "5/8", "11/16", "3/4", "13/16", "7/8", "15/16"]
 FRACTION_VALUES = {f: i/16 for i, f in enumerate(FRACTIONS)}
 
-def extract_dict(data_source):
-    if not data_source:
-        return {}
-    current = data_source
-    while isinstance(current, list):
-        if len(current) > 0:
-            current = current
-        else:
-            return {}
-    return current if isinstance(current, dict) else {}
+def safe_extract(data_source):
+    """Safely extracts a dictionary in exactly one linear step. Zero risk of infinite loops."""
+    try:
+        if isinstance(data_source, list) and len(data_source) > 0:
+            return data_source if isinstance(data_source, dict) else {}
+        if isinstance(data_source, dict):
+            return data_source
+    except Exception:
+        pass
+    return {}
 
 def float_to_fraction(val):
-    if not val or val == 0: return "0"
-    whole = int(val)
-    frac = val - whole
-    closest_frac = min(FRACTIONS, key=lambda x: abs(FRACTION_VALUES[x] - frac))
-    return f"{whole}\"" if closest_frac == "0" else f"{whole} {closest_frac}\""
+    try:
+        if val is None or float(val) == 0: return "0"
+        val = float(val)
+        whole = int(val)
+        frac = val - whole
+        closest_frac = min(FRACTIONS, key=lambda x: abs(FRACTION_VALUES[x] - frac))
+        return f"{whole}\"" if closest_frac == "0" else f"{whole} {closest_frac}\""
+    except Exception:
+        return "0"
 
 def get_inch_and_frac_index(val):
-    if not val:
+    try:
+        if val is None: return 0, 0
+        val = float(val)
+        whole = int(val)
+        frac = val - whole
+        closest_frac = min(FRACTIONS, key=lambda x: abs(FRACTION_VALUES[x] - frac))
+        return whole, FRACTIONS.index(closest_frac)
+    except Exception:
         return 0, 0
-    whole = int(val)
-    frac = val - whole
-    closest_frac = min(FRACTIONS, key=lambda x: abs(FRACTION_VALUES[x] - frac))
-    return whole, FRACTIONS.index(closest_frac)
 
 def get_success_badge(rate):
     if rate >= 90: return f"{rate:.1f}% — On Fire 🔥"
@@ -58,7 +63,7 @@ def get_success_badge(rate):
     if rate >= 60: return f"{rate:.1f}% — Needs Focus ⚠️"
     return f"{rate:.1f}% — Danger Zone 🛑"
 
-# --- LINEAR SAFE CONFIGURATION ENGINE ---
+# --- 4. LINEAR CONFIGURATION ENGINE ---
 DEFAULT_SETTINGS = {
     "admin_secret_key": "driven2026", 
     "challenge_duration_weeks": 6, 
@@ -69,7 +74,7 @@ DEFAULT_SETTINGS = {
 
 try:
     settings_query = supabase.table("challenge_settings").select("*").eq("id", 1).execute()
-    settings = extract_dict(settings_query.data) if settings_query.data else DEFAULT_SETTINGS
+    settings = safe_extract(settings_query.data) if settings_query.data else DEFAULT_SETTINGS
 except Exception:
     settings = DEFAULT_SETTINGS
 
@@ -84,14 +89,14 @@ if isinstance(raw_start_date, str):
 elif hasattr(raw_start_date, "year"):
     challenge_start_date = raw_start_date
 
-# --- USER STATE APP FLOW ---
+# --- 5. USER STATE APP FLOW ---
 if "user" not in st.session_state:
     st.session_state.user = None
 
 if "nav_page" not in st.session_state:
     st.session_state.nav_page = "Dashboard"
 
-# --- SIDEBAR NAVIGATION WITH SECURE FUNNEL GATES ---
+# --- 6. SIDEBAR NAVIGATION ---
 st.sidebar.markdown("### CHALLENGE MENU")
 
 has_baseline = False
@@ -104,7 +109,7 @@ if st.session_state.user:
     
     try:
         baseline_check = supabase.table("user_baselines").select("start_weight").eq("user_id", st.session_state.user["id"]).execute()
-        b_check_row = extract_dict(baseline_check.data)
+        b_check_row = safe_extract(baseline_check.data)
         if b_check_row and b_check_row.get("start_weight") is not None:
             has_baseline = True
     except Exception:
@@ -131,7 +136,7 @@ except ValueError:
 page = st.sidebar.radio("Go To", navigation_options, index=default_selection_index)
 st.session_state.nav_page = page
 
-# --- SIGN UP & LOGIN INTERFACE ---
+# --- 7. SIGN UP & LOGIN INTERFACE ---
 if not st.session_state.user and page != "Admin Configuration Panel":
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Driven Community Fitness Challenge</h2>", unsafe_allow_html=True)
     auth_mode = st.radio("Choose Action", ["Login", "Register Account"])
@@ -172,7 +177,7 @@ if not st.session_state.user and page != "Admin Configuration Panel":
                 st.error("Invalid login credentials.")
     st.stop()
 
-# --- HIGH-COMPACT REVISION-AWARE SELECTOR ---
+# --- 8. REVISION-AWARE SELECTOR ---
 def fraction_selector(label, unique_key, current_val=0.0):
     st.markdown(f"<div style='margin-top: 10px; font-weight: 600; color: #FAFAFA;'>{label}</div>", unsafe_allow_html=True)
     default_inch, default_frac_idx = get_inch_and_frac_index(current_val)
@@ -185,7 +190,7 @@ def fraction_selector(label, unique_key, current_val=0.0):
     frac = c2.selectbox("Fraction", FRACTIONS, index=default_frac_idx, key=f"{unique_key}_f")
     return whole + FRACTION_VALUES[frac]
 
-# --- PAGES CONTENT IMPLEMENTATION ---
+# --- 9. PAGES CONTENT IMPLEMENTATION ---
 if page == "Challenge Measurements":
     st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Challenge Measurements</h2>", unsafe_allow_html=True)
     
@@ -196,12 +201,11 @@ if page == "Challenge Measurements":
         weeks_count = 6
     total_challenge_days = weeks_count * 7
     end_dt = start_dt + timedelta(days=total_challenge_days)
-    
     days_since_start = (date.today() - start_dt).days
     
     try:
         existing_baseline_query = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
-        b_data = extract_dict(existing_baseline_query.data)
+        b_data = safe_extract(existing_baseline_query.data)
     except Exception:
         b_data = {}
     
@@ -301,7 +305,7 @@ elif page == "Benchmark Workout":
     
     try:
         existing_baseline = supabase.table("user_baselines").select("benchmark_score").eq("user_id", st.session_state.user["id"]).execute()
-        b_row = extract_dict(existing_baseline.data)
+        b_row = safe_extract(existing_baseline.data)
         current_saved_score = b_row.get("benchmark_score", "") if b_row else ""
     except Exception:
         current_saved_score = ""
@@ -328,7 +332,7 @@ elif page == "Daily Log":
     
     try:
         existing = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).eq("log_date", str(log_date)).execute()
-        log_data = extract_dict(existing.data) if existing.data else {"diet": False, "water": False, "sleep": False, "exercise": False}
+        log_data = safe_extract(existing.data) if existing.data else {"diet": False, "water": False, "sleep": False, "exercise": False}
     except Exception:
         log_data = {"diet": False, "water": False, "sleep": False, "exercise": False}
     
@@ -363,7 +367,7 @@ elif page == "Dashboard":
         try:
             baselines = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
             logs = supabase.table("daily_logs").select("*").eq("user_id", st.session_state.user["id"]).execute()
-            b = extract_dict(baselines.data)
+            b = safe_extract(baselines.data)
             logs_list = logs.data if logs.data else []
         except Exception:
             b = {}
