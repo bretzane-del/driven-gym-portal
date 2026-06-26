@@ -111,3 +111,105 @@ if st.session_state.user:
         baseline_check = supabase.table("user_baselines").select("start_weight").eq("user_id", st.session_state.user["id"]).execute()
         b_check_row = safe_extract(baseline_check.data)
         if b_check_row and b_check_row.get("start_weight") is not None:
+            has_baseline = True
+    except Exception:
+        has_baseline = False
+
+is_coach = st.query_params.get("role") == "coach"
+
+if not st.session_state.user:
+    navigation_options = ["Dashboard"]
+elif not has_baseline:
+    navigation_options = ["Dashboard", "Challenge Measurements"]
+else:
+    navigation_options = ["Dashboard", "Daily Log", "Benchmark Workout", "Challenge Measurements", "Leaderboard"]
+
+if is_coach:
+    navigation_options.append("Admin Configuration Panel")
+
+try:
+    default_selection_index = navigation_options.index(st.session_state.nav_page)
+except ValueError:
+    default_selection_index = 0
+    st.session_state.nav_page = "Dashboard"
+
+page = st.sidebar.radio("Go To", navigation_options, index=default_selection_index)
+st.session_state.nav_page = page
+
+# --- 7. SIGN UP & LOGIN INTERFACE ---
+if not st.session_state.user and page != "Admin Configuration Panel":
+    st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Driven Community Fitness Challenge</h2>", unsafe_allow_html=True)
+    auth_mode = st.radio("Choose Action", ["Login", "Register Account"])
+    
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
+    
+    if auth_mode == "Register Account":
+        fullname = st.text_input("Full Name")
+        age = st.number_input("Age", min_value=12, max_value=100, value=30)
+        gender = st.radio("Gender / Division", ["Male", "Female"])
+        
+        if st.button("Sign Up"):
+            try:
+                res = supabase.auth.sign_up({"email": email, "password": password})
+                if res.user:
+                    supabase.table("user_profiles").insert({
+                        "user_id": res.user.id, 
+                        "full_name": fullname, 
+                        "email": email, 
+                        "age": age,
+                        "gender": gender
+                    }).execute()
+                    
+                    st.session_state.user = {"id": res.user.id, "email": res.user.email}
+                    st.success("Welcome aboard! Initializing your dashboard...")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Signup error: {e}")
+    else:
+        if st.button("Login"):
+            try:
+                res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                if res.user:
+                    st.session_state.user = {"id": res.user.id, "email": res.user.email}
+                    st.rerun()
+            except Exception as e:
+                st.error("Invalid login credentials.")
+    st.stop()
+
+# --- 8. REVISION-AWARE SELECTOR ---
+def fraction_selector(label, unique_key, current_val=0.0):
+    st.markdown(f"<div style='margin-top: 10px; font-weight: 600; color: #FAFAFA;'>{label}</div>", unsafe_allow_html=True)
+    default_inch, default_frac_idx = get_inch_and_frac_index(current_val)
+    
+    c1, c2, c3 = st.columns()
+    whole_opts = list(range(0, 80))
+    def_inch_idx = whole_opts.index(default_inch) if default_inch in whole_opts else 0
+    
+    whole = c1.selectbox("Inches", whole_opts, index=def_inch_idx, key=f"{unique_key}_w")
+    frac = c2.selectbox("Fraction", FRACTIONS, index=default_frac_idx, key=f"{unique_key}_f")
+    return whole + FRACTION_VALUES[frac]
+
+# --- 9. PAGES CONTENT IMPLEMENTATION ---
+if page == "Challenge Measurements":
+    st.markdown("<h2 style='text-transform: uppercase; letter-spacing: 1px;'>Challenge Measurements</h2>", unsafe_allow_html=True)
+    
+    start_dt = challenge_start_date
+    try:
+        weeks_count = int(settings.get("challenge_duration_weeks", 6))
+    except (ValueError, TypeError):
+        weeks_count = 6
+    total_challenge_days = weeks_count * 7
+    end_dt = start_dt + timedelta(days=total_challenge_days)
+    days_since_start = (date.today() - start_dt).days
+    
+    try:
+        existing_baseline_query = supabase.table("user_baselines").select("*").eq("user_id", st.session_state.user["id"]).execute()
+        b_data = safe_extract(existing_baseline_query.data)
+    except Exception:
+        b_data = {}
+    
+    if days_since_start <= 7:
+        st.markdown("### Step 1: Enter Your Starting Measurements")
+        if has_baseline:
+            st.info("✏️ **Revision Mode Active:** Your currently saved measurements are pre-populated below. You can modify any field and save changes
